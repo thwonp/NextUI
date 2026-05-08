@@ -1,488 +1,103 @@
+#define _GNU_SOURCE
 // zero28
 #include <stdio.h>
 #include <stdlib.h>
 #include <linux/fb.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <errno.h>
-
+#include <assert.h>
+#include <sched.h>
 #include <msettings.h>
-
 #include "defines.h"
 #include "platform.h"
 #include "api.h"
 #include "utils.h"
-
-#include "scaler.h"
+#include <time.h>
+#include <pthread.h>
+#include <dirent.h>
 
 ///////////////////////////////
 
-static SDL_Joystick *joystick;
+static SDL_Joystick **joysticks = NULL;
+static int num_joysticks = 0;
 void PLAT_initInput(void) {
-	SDL_InitSubSystem(SDL_INIT_JOYSTICK);
-	joystick = SDL_JoystickOpen(0);
+	if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0)
+		LOG_error("Failed initializing joysticks: %s\n", SDL_GetError());
+	num_joysticks = SDL_NumJoysticks();
+	if (num_joysticks > 0) {
+		joysticks = (SDL_Joystick **)malloc(sizeof(SDL_Joystick *) * num_joysticks);
+		for (int i = 0; i < num_joysticks; i++) {
+			joysticks[i] = SDL_JoystickOpen(i);
+			LOG_info("Opening joystick %d: %s\n", i, SDL_JoystickName(joysticks[i]));
+		}
+	}
 }
+
 void PLAT_quitInput(void) {
-	SDL_JoystickClose(joystick);
+	if (joysticks) {
+		for (int i = 0; i < num_joysticks; i++) {
+			if (SDL_JoystickGetAttached(joysticks[i])) {
+				LOG_info("Closing joystick %d: %s\n", i, SDL_JoystickName(joysticks[i]));
+				SDL_JoystickClose(joysticks[i]);
+			}
+		}
+		free(joysticks);
+		joysticks = NULL;
+		num_joysticks = 0;
+	}
 	SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
 }
 
-///////////////////////////////
-
-static struct VID_Context {
-	SDL_Window* window;
-	SDL_Renderer* renderer;
-	SDL_Texture* texture;
-	SDL_Texture* target;
-	SDL_Texture* effect;
-	SDL_Surface* buffer;
-	SDL_Surface* screen;
-	
-	GFX_Renderer* blit; // yeesh
-	
-	int width;
-	int height;
-	int pitch;
-	int sharpness;
-} vid;
-
-static int device_width;
-static int device_height;
-static int device_pitch;
-static int rotate = 0;
-SDL_Surface* PLAT_initVideo(void) {
-	SDL_InitSubSystem(SDL_INIT_VIDEO);
-	SDL_ShowCursor(0);
-	
-	SDL_version compiled;
-	SDL_version linked;
-	SDL_VERSION(&compiled);
-	SDL_GetVersion(&linked);
-	LOG_info("Compiled SDL version %d.%d.%d ...\n", compiled.major, compiled.minor, compiled.patch);
-	LOG_info("Linked SDL version %d.%d.%d.\n", linked.major, linked.minor, linked.patch);
-
-	LOG_info("Available video drivers:\n");
-	for (int i=0; i<SDL_GetNumVideoDrivers(); i++) {
-		LOG_info("- %s\n", SDL_GetVideoDriver(i));
-	}
-	LOG_info("Current video driver: %s\n", SDL_GetCurrentVideoDriver());
-
-	LOG_info("Available render drivers:\n");
-	for (int i=0; i<SDL_GetNumRenderDrivers(); i++) {
-		SDL_RendererInfo info;
-		SDL_GetRenderDriverInfo(i,&info);
-		LOG_info("- %s\n", info.name);
+void PLAT_updateInput(const SDL_Event *event) {
+	switch (event->type) {
+	case SDL_JOYDEVICEADDED: {
+		int device_index = event->jdevice.which;
+		SDL_Joystick *new_joy = SDL_JoystickOpen(device_index);
+		if (new_joy) {
+			joysticks = realloc(joysticks, sizeof(SDL_Joystick *) * (num_joysticks + 1));
+			joysticks[num_joysticks++] = new_joy;
+			LOG_info("Joystick added at index %d: %s\n", device_index, SDL_JoystickName(new_joy));
+		} else {
+			LOG_error("Failed to open added joystick at index %d: %s\n", device_index, SDL_GetError());
+		}
+		break;
 	}
 
-	LOG_info("Available display modes:\n");
-	SDL_DisplayMode mode;
-	for (int i=0; i<SDL_GetNumDisplayModes(0); i++) {
-		SDL_GetDisplayMode(0, i, &mode);
-		LOG_info("- %ix%i (%s)\n", mode.w,mode.h, SDL_GetPixelFormatName(mode.format));
-	}
-	SDL_GetCurrentDisplayMode(0, &mode);
-	if (mode.h>mode.w) rotate = 1;
-	LOG_info("Current display mode: %ix%i (%s)\n", mode.w,mode.h, SDL_GetPixelFormatName(mode.format));
-	
-	int w = FIXED_WIDTH;
-	int h = FIXED_HEIGHT;
-	int p = FIXED_PITCH;
-	vid.window   = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w,h, SDL_WINDOW_SHOWN);
-	vid.renderer = SDL_CreateRenderer(vid.window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
-	
-	SDL_RendererInfo info;
-	SDL_GetRendererInfo(vid.renderer, &info);
-	LOG_info("Current render driver: %s\n", info.name);
-	
-	int rw,rh;
-	SDL_GetRendererOutputSize(vid.renderer, &rw,&rh);
-	LOG_info("renderer size: %ix%i\n", rw,rh);
-	
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY,"0");
-	vid.texture = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, w,h);
-	int tw,th;
-	SDL_QueryTexture(vid.texture, NULL,NULL,&tw,&th);
-	LOG_info("texture size: %ix%i\n", tw,th); // TODO: why is this 1024x768? :lolsob:
-	
-	vid.target	= NULL; // only needed for non-native sizes
-	
-	// SDL_SetTextureScaleMode(vid.texture, SDL_ScaleModeNearest);
-	
-	vid.buffer	= SDL_CreateRGBSurfaceFrom(NULL, w,h, FIXED_DEPTH, p, RGBA_MASK_565);
-	vid.screen	= SDL_CreateRGBSurface(SDL_SWSURFACE, w,h, FIXED_DEPTH, RGBA_MASK_565);
-	vid.width	= w;
-	vid.height	= h;
-	vid.pitch	= p;
-	
-	device_width	= w;
-	device_height	= h;
-	device_pitch	= p;
-	
-	vid.sharpness = SHARPNESS_SOFT;
-	
-	return vid.screen;
-}
+	case SDL_JOYDEVICEREMOVED: {
+		SDL_JoystickID removed_id = event->jdevice.which;
+		for (int i = 0; i < num_joysticks; ++i) {
+			if (SDL_JoystickInstanceID(joysticks[i]) == removed_id) {
+				LOG_info("Joystick removed: %s\n", SDL_JoystickName(joysticks[i]));
+				SDL_JoystickClose(joysticks[i]);
 
-static void clearVideo(void) {
-	for (int i=0; i<3; i++) {
-		SDL_RenderClear(vid.renderer);
-		SDL_FillRect(vid.screen, NULL, 0);
-		
-		SDL_LockTexture(vid.texture,NULL,&vid.buffer->pixels,&vid.buffer->pitch);
-		SDL_FillRect(vid.buffer, NULL, 0);
-		SDL_UnlockTexture(vid.texture);
-		SDL_RenderCopy(vid.renderer, vid.texture, NULL, NULL);
-		
-		SDL_RenderPresent(vid.renderer);
-	}
-}
+				// Shift down the remaining entries
+				for (int j = i; j < num_joysticks - 1; ++j)
+					joysticks[j] = joysticks[j + 1];
+				num_joysticks--;
 
-void PLAT_quitVideo(void) {
-	clearVideo();
-
-	SDL_FreeSurface(vid.screen);
-	SDL_FreeSurface(vid.buffer);
-	if (vid.target) SDL_DestroyTexture(vid.target);
-	if (vid.effect) SDL_DestroyTexture(vid.effect);
-	SDL_DestroyTexture(vid.texture);
-	SDL_DestroyRenderer(vid.renderer);
-	SDL_DestroyWindow(vid.window);
-
-	SDL_Quit();
-	system("cat /dev/zero > /dev/fb0 2>/dev/null");
-}
-
-void PLAT_clearVideo(SDL_Surface* screen) {
-	SDL_FillRect(screen, NULL, 0); // TODO: revisit
-}
-void PLAT_clearAll(void) {
-	PLAT_clearVideo(vid.screen); // TODO: revist
-	SDL_RenderClear(vid.renderer);
-}
-
-void PLAT_setVsync(int vsync) {
-	
-}
-
-static int hard_scale = 4; // TODO: base src size, eg. 160x144 can be 4
-
-static void resizeVideo(int w, int h, int p) {
-	if (w==vid.width && h==vid.height && p==vid.pitch) return;
-	
-	// TODO: minarch disables crisp (and nn upscale before linear downscale) when native, is this true?
-	
-	if (w>=device_width && h>=device_height) hard_scale = 1;
-	// else if (h>=160) hard_scale = 2; // limits gba and up to 2x (seems sufficient for 640x480)
-	else hard_scale = 4;
-
-	LOG_info("resizeVideo(%i,%i,%i) hard_scale: %i crisp: %i\n",w,h,p, hard_scale,vid.sharpness==SHARPNESS_CRISP);
-
-	SDL_FreeSurface(vid.buffer);
-	SDL_DestroyTexture(vid.texture);
-	if (vid.target) SDL_DestroyTexture(vid.target);
-	
-	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, vid.sharpness==SHARPNESS_SOFT?"1":"0", SDL_HINT_OVERRIDE);
-	vid.texture = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, w,h);
-	
-	if (vid.sharpness==SHARPNESS_CRISP) {
-		SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "1", SDL_HINT_OVERRIDE);
-		vid.target = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_TARGET, w * hard_scale,h * hard_scale);
-	}
-	else {
-		vid.target = NULL;
-	}
-
-	vid.buffer	= SDL_CreateRGBSurfaceFrom(NULL, w,h, FIXED_DEPTH, p, RGBA_MASK_565);
-
-	vid.width	= w;
-	vid.height	= h;
-	vid.pitch	= p;
-}
-
-SDL_Surface* PLAT_resizeVideo(int w, int h, int p) {
-	resizeVideo(w,h,p);
-	return vid.screen;
-}
-
-void PLAT_setVideoScaleClip(int x, int y, int width, int height) {
-	// buh
-}
-void PLAT_setNearestNeighbor(int enabled) {
-	// always enabled?
-}
-void PLAT_setSharpness(int sharpness) {
-	if (vid.sharpness==sharpness) return;
-	int p = vid.pitch;
-	vid.pitch = 0;
-	vid.sharpness = sharpness;
-	resizeVideo(vid.width,vid.height,p);
-}
-
-static struct FX_Context {
-	int scale;
-	int type;
-	int color;
-	int next_scale;
-	int next_type;
-	int next_color;
-	int live_type;
-} effect = {
-	.scale = 1,
-	.next_scale = 1,
-	.type = EFFECT_NONE,
-	.next_type = EFFECT_NONE,
-	.live_type = EFFECT_NONE,
-	.color = 0,
-	.next_color = 0,
-};
-static void rgb565_to_rgb888(uint32_t rgb565, uint8_t *r, uint8_t *g, uint8_t *b) {
-    // Extract the red component (5 bits)
-    uint8_t red = (rgb565 >> 11) & 0x1F;
-    // Extract the green component (6 bits)
-    uint8_t green = (rgb565 >> 5) & 0x3F;
-    // Extract the blue component (5 bits)
-    uint8_t blue = rgb565 & 0x1F;
-
-    // Scale the values to 8-bit range
-    *r = (red << 3) | (red >> 2);
-    *g = (green << 2) | (green >> 4);
-    *b = (blue << 3) | (blue >> 2);
-}
-static void updateEffect(void) {
-	if (effect.next_scale==effect.scale && effect.next_type==effect.type && effect.next_color==effect.color) return; // unchanged
-	
-	int live_scale = effect.scale;
-	int live_color = effect.color;
-	effect.scale = effect.next_scale;
-	effect.type = effect.next_type;
-	effect.color = effect.next_color;
-	
-	if (effect.type==EFFECT_NONE) return; // disabled
-	if (effect.type==effect.live_type && effect.scale==live_scale && effect.color==live_color) return; // already loaded
-	
-	char* effect_path;
-	int opacity = 128; // 1 - 1/2 = 50%
-	if (effect.type==EFFECT_LINE) {
-		if (effect.scale<3) {
-			effect_path = RES_PATH "/line-2.png";
-		}
-		else if (effect.scale<4) {
-			effect_path = RES_PATH "/line-3.png";
-		}
-		else if (effect.scale<5) {
-			effect_path = RES_PATH "/line-4.png";
-		}
-		else if (effect.scale<6) {
-			effect_path = RES_PATH "/line-5.png";
-		}
-		else if (effect.scale<8) {
-			effect_path = RES_PATH "/line-6.png";
-		}
-		else {
-			effect_path = RES_PATH "/line-8.png";
-		}
-	}
-	else if (effect.type==EFFECT_GRID) {
-		if (effect.scale<3) {
-			effect_path = RES_PATH "/grid-2.png";
-			opacity = 64; // 1 - 3/4 = 25%
-		}
-		else if (effect.scale<4) {
-			effect_path = RES_PATH "/grid-3.png";
-			opacity = 112; // 1 - 5/9 = ~44%
-		}
-		else if (effect.scale<5) {
-			effect_path = RES_PATH "/grid-4.png";
-			opacity = 144; // 1 - 7/16 = ~56%
-		}
-		else if (effect.scale<6) {
-			effect_path = RES_PATH "/grid-5.png";
-			opacity = 160; // 1 - 9/25 = ~64%
-			// opacity = 96; // TODO: tmp, for white grid
-		}
-		else if (effect.scale<8) {
-			effect_path = RES_PATH "/grid-6.png";
-			opacity = 112; // 1 - 5/9 = ~44%
-		}
-		else if (effect.scale<11) {
-			effect_path = RES_PATH "/grid-8.png";
-			opacity = 144; // 1 - 7/16 = ~56%
-		}
-		else {
-			effect_path = RES_PATH "/grid-11.png";
-			opacity = 136; // 1 - 57/121 = ~52%
-		}
-	}
-	
-	// LOG_info("effect: %s opacity: %i\n", effect_path, opacity);
-	SDL_Surface* tmp = IMG_Load(effect_path);
-	if (tmp) {
-		if (effect.type==EFFECT_GRID) {
-			if (effect.color) {
-				// LOG_info("dmg color grid...\n");
-			
-				uint8_t r,g,b;
-				rgb565_to_rgb888(effect.color,&r,&g,&b);
-				// LOG_info("rgb %i,%i,%i\n",r,g,b); 
-			
-				uint32_t* pixels = (uint32_t*)tmp->pixels;
-				int width = tmp->w;
-				int height = tmp->h;
-				for (int y = 0; y < height; ++y) {
-				    for (int x = 0; x < width; ++x) {
-				        uint32_t pixel = pixels[y * width + x];
-				        uint8_t _,a;
-				        SDL_GetRGBA(pixel, tmp->format, &_, &_, &_, &a);
-				        if (a) pixels[y * width + x] = SDL_MapRGBA(tmp->format, r,g,b, a);
-				    }
+				if (num_joysticks == 0) {
+					free(joysticks);
+					joysticks = NULL;
+				} else {
+					joysticks = realloc(joysticks, sizeof(SDL_Joystick *) * num_joysticks);
 				}
-				
-				// if (r==247 && g==243 & b==247) opacity = 64;
+				break;
 			}
 		}
-
-		if (vid.effect) SDL_DestroyTexture(vid.effect);
-		vid.effect = SDL_CreateTextureFromSurface(vid.renderer, tmp);
-		SDL_SetTextureAlphaMod(vid.effect, opacity);
-		SDL_FreeSurface(tmp);
-		effect.live_type = effect.type;
+		break;
 	}
-}
-void PLAT_setEffect(int next_type) {
-	effect.next_type = next_type;
-}
-void PLAT_setEffectColor(int next_color) {
-	effect.next_color = next_color;
-}
-void PLAT_vsync(int remaining) {
-	if (remaining>0) SDL_Delay(remaining);
-}
 
-scaler_t PLAT_getScaler(GFX_Renderer* renderer) {
-	// LOG_info("getScaler for scale: %i\n", renderer->scale);
-	effect.next_scale = renderer->scale;
-	return scale1x1_c16;
-}
-
-void PLAT_blitRenderer(GFX_Renderer* renderer) {
-	vid.blit = renderer;
-	SDL_RenderClear(vid.renderer);
-	resizeVideo(vid.blit->true_w,vid.blit->true_h,vid.blit->src_p);
-}
-
-void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
-	
-	if (!vid.blit) {
-		resizeVideo(device_width,device_height,FIXED_PITCH); // !!!???
-		SDL_UpdateTexture(vid.texture,NULL,vid.screen->pixels,vid.screen->pitch);
-		if (rotate) SDL_RenderCopyEx(vid.renderer,vid.texture,NULL,&(SDL_Rect){device_height,0,device_width,device_height},rotate*90,&(SDL_Point){0,0},SDL_FLIP_NONE);
-		else SDL_RenderCopy(vid.renderer, vid.texture, NULL,NULL);
-		SDL_RenderPresent(vid.renderer);
-		return;
+	default:
+		break;
 	}
-	
-	// uint32_t then = SDL_GetTicks();
-	SDL_UpdateTexture(vid.texture,NULL,vid.blit->src,vid.blit->src_p);
-	// LOG_info("blit blocked for %ims (%i,%i)\n", SDL_GetTicks()-then,vid.buffer->w,vid.buffer->h);
-	
-	SDL_Texture* target = vid.texture;
-	int x = vid.blit->src_x;
-	int y = vid.blit->src_y;
-	int w = vid.blit->src_w;
-	int h = vid.blit->src_h;
-	if (vid.sharpness==SHARPNESS_CRISP) {
-		SDL_SetRenderTarget(vid.renderer,vid.target);
-		SDL_RenderCopy(vid.renderer, vid.texture, NULL,NULL);
-		SDL_SetRenderTarget(vid.renderer,NULL);
-		x *= hard_scale;
-		y *= hard_scale;
-		w *= hard_scale;
-		h *= hard_scale;
-		target = vid.target;
-	}
-	
-	SDL_Rect* src_rect = &(SDL_Rect){x,y,w,h};
-	SDL_Rect* dst_rect = &(SDL_Rect){0,0,device_width,device_height};
-	if (vid.blit->aspect==0) { // native or cropped
-		// LOG_info("src_rect %i,%i %ix%i\n",src_rect->x,src_rect->y,src_rect->w,src_rect->h);
-
-		int w = vid.blit->src_w * vid.blit->scale;
-		int h = vid.blit->src_h * vid.blit->scale;
-		int x = (device_width - w) / 2;
-		int y = (device_height - h) / 2;
-		dst_rect->x = x;
-		dst_rect->y = y;
-		dst_rect->w = w;
-		dst_rect->h = h;
-		
-		// LOG_info("dst_rect %i,%i %ix%i\n",dst_rect->x,dst_rect->y,dst_rect->w,dst_rect->h);
-	}
-	else if (vid.blit->aspect>0) { // aspect
-		int h = device_height;
-		int w = h * vid.blit->aspect;
-		if (w>device_width) {
-			double ratio = 1 / vid.blit->aspect;
-			w = device_width;
-			h = w * ratio;
-		}
-		int x = (device_width - w) / 2;
-		int y = (device_height - h) / 2;
-		// dst_rect = &(SDL_Rect){x,y,w,h};
-		dst_rect->x = x;
-		dst_rect->y = y;
-		dst_rect->w = w;
-		dst_rect->h = h;
-	}
-	
-	// SDL_RenderCopy(vid.renderer, target, src_rect, dst_rect);
-	int ox,oy;
-	oy = (device_width-device_height)/2;
-	ox = -oy;
-	if (rotate) SDL_RenderCopyEx(vid.renderer,target,src_rect,&(SDL_Rect){ox+dst_rect->x,oy+dst_rect->y,dst_rect->w,dst_rect->h},rotate*90,NULL,SDL_FLIP_NONE);
-	else SDL_RenderCopy(vid.renderer, target, src_rect, dst_rect);
-	
-	updateEffect();
-	if (vid.blit && effect.type!=EFFECT_NONE && vid.effect) {
-		// SDL_RenderCopy(vid.renderer, vid.effect, &(SDL_Rect){0,0,dst_rect->w,dst_rect->h}, dst_rect);
-		if (rotate) SDL_RenderCopyEx(vid.renderer,vid.effect,&(SDL_Rect){0,0,dst_rect->w,dst_rect->h},&(SDL_Rect){ox+dst_rect->x,oy+dst_rect->y,dst_rect->w,dst_rect->h},rotate*90,NULL,SDL_FLIP_NONE);
-		else SDL_RenderCopy(vid.renderer, vid.effect, &(SDL_Rect){0,0,dst_rect->w,dst_rect->h},dst_rect);
-	}	
-	// uint32_t then = SDL_GetTicks();
-	SDL_RenderPresent(vid.renderer);
-	// LOG_info("SDL_RenderPresent blocked for %ims\n", SDL_GetTicks()-then);
-	vid.blit = NULL;
 }
 
 ///////////////////////////////
 
-// TODO: 
-#define OVERLAY_WIDTH PILL_SIZE // unscaled
-#define OVERLAY_HEIGHT PILL_SIZE // unscaled
-#define OVERLAY_BPP 4
-#define OVERLAY_DEPTH 16
-#define OVERLAY_PITCH (OVERLAY_WIDTH * OVERLAY_BPP) // unscaled
-#define OVERLAY_RGBA_MASK 0x00ff0000,0x0000ff00,0x000000ff,0xff000000 // ARGB
-static struct OVL_Context {
-	SDL_Surface* overlay;
-} ovl;
-
-SDL_Surface* PLAT_initOverlay(void) {
-	ovl.overlay = SDL_CreateRGBSurface(SDL_SWSURFACE, SCALE2(OVERLAY_WIDTH,OVERLAY_HEIGHT),OVERLAY_DEPTH,OVERLAY_RGBA_MASK);
-	return ovl.overlay;
-}
-void PLAT_quitOverlay(void) {
-	if (ovl.overlay) SDL_FreeSurface(ovl.overlay);
-}
-void PLAT_enableOverlay(int enable) {
-
-}
-
-///////////////////////////////
-
-static int online = 0;
 void PLAT_getBatteryStatus(int* is_charging, int* charge) {
 	PLAT_getBatteryStatusFine(is_charging, charge);
 
@@ -497,37 +112,38 @@ void PLAT_getBatteryStatus(int* is_charging, int* charge) {
 
 void PLAT_getBatteryStatusFine(int* is_charging, int* charge)
 {
-	
-	// *is_charging = 0;
-	// *charge = PWR_LOW_CHARGE;
-	// return;
-	
 	*is_charging = getInt("/sys/class/power_supply/axp2202-usb/online");
-
 	*charge = getInt("/sys/class/power_supply/axp2202-battery/capacity");
-
-	// // wifi status, just hooking into the regular PWR polling
-	char status[16];
-	getFile("/sys/class/net/wlan0/operstate", status,16);
-	online = prefixMatch("up", status);
 }
+
+///////////////////////////////
+
+void PLAT_getNetworkStatus(int* is_online) {
+	if (is_online) *is_online = 0;
+}
+
+ConnectionStrength PLAT_connectionStrength(void) {
+	return SIGNAL_STRENGTH_OFF;
+}
+
+///////////////////////////////
 
 #define BLANK_PATH "/sys/class/graphics/fb0/blank"
 void PLAT_enableBacklight(int enable) {
-	// no LED control
 	if (enable) {
+		SetRawBrightness(8);                    // wake fix: prevents screen staying dark on some board revisions
 		SetBrightness(GetBrightness());
 		system("bl_enable");
-		putInt(BLANK_PATH,FB_BLANK_UNBLANK);
+		putInt(BLANK_PATH, FB_BLANK_UNBLANK);
 	}
 	else {
 		SetRawBrightness(0);
 		system("bl_disable");
-		putInt(BLANK_PATH,FB_BLANK_POWERDOWN);
+		putInt(BLANK_PATH, FB_BLANK_POWERDOWN);
 	}
 }
 
-void PLAT_powerOff(void) {
+void PLAT_powerOff(int reboot) {
 	system("rm -f /tmp/nextui_exec && sync");
 	sleep(2);
 
@@ -537,11 +153,14 @@ void PLAT_powerOff(void) {
 	VIB_quit();
 	PWR_quit();
 	GFX_quit();
-	
+
 	system("cat /dev/zero > /dev/fb0 2>/dev/null");
-	system("poweroff");
+	if (reboot > 0)
+		touch("/tmp/reboot");
+	else
+		touch("/tmp/poweroff");
+	sync();
 	exit(0);
-	// while (1) pause(); // lolwat
 }
 
 int PLAT_supportsDeepSleep(void) { return 1; }
@@ -552,17 +171,22 @@ int PLAT_supportsDeepSleep(void) { return 1; }
 void PLAT_setCPUSpeed(int speed) {
 	int freq = 0;
 	switch (speed) {
-		case CPU_SPEED_MENU: 		freq =  600000; break;
-		case CPU_SPEED_POWERSAVE:	freq =  816000; break;
-		case CPU_SPEED_NORMAL: 		freq = 1416000; break;
+		case CPU_SPEED_MENU:        freq =  600000; break;
+		case CPU_SPEED_POWERSAVE:   freq =  816000; break;
+		case CPU_SPEED_NORMAL:      freq = 1416000; break;
 		case CPU_SPEED_PERFORMANCE: freq = 1800000; break;
 	}
 	putInt(GOVERNOR_PATH, freq);
 }
 
-#define RUMBLE_PATH "/sys/class/gpio/gpio227/value"
+void PLAT_setCustomCPUSpeed(int speed) {
+	putInt(GOVERNOR_PATH, speed);
+}
+
+///////////////////////////////
+
 void PLAT_setRumble(int strength) {
-	// putInt(RUMBLE_PATH, (strength && !GetMute())?1:0);
+	// no haptic motor on zero28
 }
 
 int PLAT_pickSampleRate(int requested, int max) {
@@ -573,6 +197,162 @@ char* PLAT_getModel(void) {
 	return "Mini Zero 28";
 }
 
-int PLAT_isOnline(void) {
-	return online;
+void PLAT_getOsVersionInfo(char* output_str, size_t max_len) {
+	getFile("/etc/version", output_str, max_len);
 }
+
+///////////////////////////////
+
+void PLAT_initDefaultLeds(void) {}
+
+///////////////////////////////
+
+int PLAT_setDateTime(int y, int m, int d, int h, int i, int s) {
+	char cmd[512];
+	sprintf(cmd, "date -s '%d-%d-%d %d:%d:%d'; hwclock -u -w", y,m,d,h,i,s);
+	system(cmd);
+	return 0; // why does this return an int?
+}
+
+#define MAX_LINE_LENGTH 200
+#define ZONE_PATH "/usr/share/zoneinfo"
+#define ZONE_TAB_PATH ZONE_PATH "/zone.tab"
+
+static char cached_timezones[MAX_TIMEZONES][MAX_TZ_LENGTH];
+static int cached_tz_count = -1;
+
+int compare_timezones(const void *a, const void *b) {
+	return strcmp((const char *)a, (const char *)b);
+}
+
+void PLAT_initTimezones() {
+	if (cached_tz_count != -1) { // Already initialized
+		return;
+	}
+
+	FILE *file = fopen(ZONE_TAB_PATH, "r");
+	if (!file) {
+		LOG_info("Error opening file %s\n", ZONE_TAB_PATH);
+		return;
+	}
+
+	char line[MAX_LINE_LENGTH];
+	cached_tz_count = 0;
+
+	while (fgets(line, sizeof(line), file)) {
+		// Skip comment lines
+		if (line[0] == '#' || strlen(line) < 3) {
+			continue;
+		}
+
+		char *token = strtok(line, "\t"); // Skip country code
+		if (!token) continue;
+
+		token = strtok(NULL, "\t"); // Skip latitude/longitude
+		if (!token) continue;
+
+		token = strtok(NULL, "\t\n"); // Extract timezone
+		if (!token) continue;
+
+		// Check for duplicates before adding
+		int duplicate = 0;
+		for (int i = 0; i < cached_tz_count; i++) {
+			if (strcmp(cached_timezones[i], token) == 0) {
+				duplicate = 1;
+				break;
+			}
+		}
+
+		if (!duplicate && cached_tz_count < MAX_TIMEZONES) {
+			strncpy(cached_timezones[cached_tz_count], token, MAX_TZ_LENGTH - 1);
+			cached_timezones[cached_tz_count][MAX_TZ_LENGTH - 1] = '\0'; // Ensure null-termination
+			cached_tz_count++;
+		}
+	}
+
+	fclose(file);
+
+	// Sort the list alphabetically
+	qsort(cached_timezones, cached_tz_count, MAX_TZ_LENGTH, compare_timezones);
+}
+
+void PLAT_getTimezones(char timezones[MAX_TIMEZONES][MAX_TZ_LENGTH], int *tz_count) {
+	if (cached_tz_count == -1) {
+		LOG_warn("Error: Timezones not initialized. Call PLAT_initTimezones first.\n");
+		*tz_count = 0;
+		return;
+	}
+
+	memcpy(timezones, cached_timezones, sizeof(cached_timezones));
+	*tz_count = cached_tz_count;
+}
+
+char *PLAT_getCurrentTimezone() {
+	// easy enough, get current index from config and return the string
+	int tz_index = CFG_getCurrentTimezone();
+	if (tz_index < 0 || tz_index >= cached_tz_count) {
+		LOG_warn("Error: Current timezone index %d out of bounds.\n", tz_index);
+		return NULL;
+	}
+
+	char *output = (char *)malloc(256);
+	if (!output)
+		return NULL;
+
+	strncpy(output, cached_timezones[tz_index], 256 - 1);
+	output[256 - 1] = '\0'; // Ensure null-termination
+
+	return output;
+}
+
+void PLAT_setCurrentTimezone(const char* tz) {
+	if (cached_tz_count == -1) {
+		LOG_warn("Error: Timezones not initialized. Call PLAT_initTimezones first.\n");
+		return;
+	}
+
+	if (!tz || strlen(tz) == 0) {
+		LOG_warn("Error: Invalid timezone string.\n");
+		return;
+	}
+
+	// get index of timezone
+	int tz_index = -1;
+	for (int i = 0; i < cached_tz_count; i++) {
+		if (strcmp(cached_timezones[i], tz) == 0) {
+			tz_index = i;
+			break;
+		}
+	}
+
+	if (tz_index == -1) {
+		LOG_warn("Error: Timezone %s not found in cached list.\n", tz);
+		return;
+	}
+
+	// set in config
+	CFG_setCurrentTimezone(tz_index);
+
+	// This fixes the timezone until the next reboot
+	char *tz_path = (char *)malloc(256);
+	if (!tz_path) {
+		return;
+	}
+	snprintf(tz_path, 256, ZONE_PATH "/%s", tz);
+	// replace existing symlink
+	if (unlink("/tmp/localtime") == -1) {
+		LOG_debug("Failed to remove existing symlink: %s\n", strerror(errno));
+	}
+	if (symlink(tz_path, "/tmp/localtime") == -1) {
+		LOG_error("Failed to set timezone: %s\n", strerror(errno));
+	}
+	free(tz_path);
+
+	// TODO: verify whether Moss has hwclock before enabling the following line
+	// system("hwclock -u -w && hwclock --systz -u");
+}
+
+/////////////////////////
+
+// We use the generic video implementation here
+#include "generic_video.c"
