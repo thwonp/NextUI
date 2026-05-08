@@ -2222,6 +2222,7 @@ int main (int argc, char *argv[]) {
 	LOG_info("NextUI\n");
 	InitSettings();
 
+	LOG_info("calling GFX_init\n");
 	screen = GFX_init(MODE_MAIN);
 // LOG_info("- graphics init: %lu\n", SDL_GetTicks() - main_begin);
 
