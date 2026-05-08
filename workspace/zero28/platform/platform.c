@@ -22,6 +22,8 @@
 
 ///////////////////////////////
 
+volatile int useAutoCpu = 1;
+
 static SDL_Joystick **joysticks = NULL;
 static int num_joysticks = 0;
 void PLAT_initInput(void) {
