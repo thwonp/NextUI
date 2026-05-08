@@ -73,6 +73,57 @@ cd $(dirname "$0")
 
 #######################################
 
+# FIFO QUIT show2.elf so SDL_Quit properly releases the PowerVR GPU context.
+# SIGKILL leaves PowerVR in asynchronous cleanup ([pvr_defer_free]) which races
+# against nextui.elf's SDL_InitSubSystem. Clean exit avoids the race.
+# Sleep 3s after exit: PowerVR hardware needs time to fully reinitialize before
+# nextui.elf's SDL_CreateWindow (SDL_WINDOW_OPENGL) can acquire an EGL context.
+# 007l diagnostic — remove before upstream PR
+{
+    echo "=== pre-kill state ==="
+    echo "show2.pid: $(cat /tmp/show2.pid 2>/dev/null || echo '(missing)')"
+    echo "--- ps ---"
+    ps 2>/dev/null
+    echo "--- device holders ---"
+    for _pid in /proc/[0-9]*; do
+        _devs=$(ls -la "$_pid/fd" 2>/dev/null | grep " -> /dev/" | awk '{print $NF}' | tr '\n' ' ')
+        [ -n "$_devs" ] && printf "  pid %s (%s): %s\n" \
+            "$(basename "$_pid")" \
+            "$(cat "$_pid/cmdline" 2>/dev/null | tr '\0' ' ' | cut -c1-40)" \
+            "$_devs"
+    done
+    echo "=== end pre-kill ==="
+} > "$LOGS_PATH/launch_diag.txt" 2>&1
+sync
+SHOW2_PID=$(cat /tmp/show2.pid 2>/dev/null)
+echo "QUIT" > /tmp/show2.fifo 2>/dev/null || true
+if [ -n "$SHOW2_PID" ]; then
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        if ! kill -0 "$SHOW2_PID" > /dev/null 2>&1; then break; fi
+        sleep 0.1
+    done
+fi
+killall -9 show2.elf > /dev/null 2>&1 || true
+sleep 3
+# 007l diagnostic — remove before upstream PR
+{
+    echo "=== post-quit state ==="
+    echo "show2_pid was: $SHOW2_PID"
+    echo "kill -0 result: $(kill -0 "$SHOW2_PID" 2>&1; echo exit=$?)"
+    echo "--- ps ---"
+    ps 2>/dev/null
+    echo "--- device holders ---"
+    for _pid in /proc/[0-9]*; do
+        _devs=$(ls -la "$_pid/fd" 2>/dev/null | grep " -> /dev/" | awk '{print $NF}' | tr '\n' ' ')
+        [ -n "$_devs" ] && printf "  pid %s (%s): %s\n" \
+            "$(basename "$_pid")" \
+            "$(cat "$_pid/cmdline" 2>/dev/null | tr '\0' ' ' | cut -c1-40)" \
+            "$_devs"
+    done
+    echo "=== end post-quit ==="
+} >> "$LOGS_PATH/launch_diag.txt" 2>&1
+sync
+
 EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH"  && sync

@@ -30,6 +30,7 @@ fi
 if [ "$SHOW_SPLASH" = "yes" ]; then
 	cd $(dirname "$0")/$PLATFORM
 	./show2.elf --mode=daemon --image="$LOGO_PATH" --text="Installing..." --progress=-1 &
+	echo $! > /tmp/show2.pid
 fi
 
 echo userspace > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
