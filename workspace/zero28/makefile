@@ -25,6 +25,7 @@ early: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILE
 	cd $(REQUIRES_EVTEST) && $(CROSS_COMPILE)gcc -o evtest evtest.c
 	cd $(REQUIRES_JSTEST) && $(CROSS_COMPILE)gcc -o jstest jstest.c
 	cd $(REQUIRES_UNZIP60) && make -f unix/Makefile.trimuismart unzip
+	cd bl && make
 
 clean:
 	cd $(REQUIRES_FILEMGR) && make clean
@@ -34,6 +35,7 @@ clean:
 
 $(REQUIRES_FILEMGR):
 	git clone --depth 1 https://github.com/LoveRetro/NextCommander.git $(REQUIRES_FILEMGR)
+	cd $(REQUIRES_FILEMGR) && patch -p1 < $(CURDIR)/other/NextCommander.patch
 
 $(REQUIRES_EVTEST):
 	git clone --depth 1 https://github.com/freedesktop-unofficial-mirror/evtest.git $(REQUIRES_EVTEST)
