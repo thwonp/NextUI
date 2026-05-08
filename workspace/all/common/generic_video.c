@@ -22,6 +22,8 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <math.h>
+#include <unistd.h>
+#include <dlfcn.h>
 
 #if defined(__has_feature)
 #if __has_feature(thread_sanitizer)
@@ -502,6 +504,8 @@ void PLAT_resetShaders() {
 }
 
 SDL_Surface* PLAT_initVideo(void) {
+	LOG_info("PLAT_initVideo: entering\n");
+	sync();
 
 #if NEXTUI_TSAN
 	/*
@@ -515,6 +519,8 @@ SDL_Surface* PLAT_initVideo(void) {
 	SDL_LogSetOutputFunction(sdl_log_stdout, NULL);
 	//SDL_LogSetAllPriority(SDL_LOG_PRIORITY_VERBOSE);
 	SDL_InitSubSystem(SDL_INIT_VIDEO);
+	LOG_info("PLAT_initVideo: SDL_InitSubSystem done\n");
+	sync();
 	SDL_ShowCursor(0);
 
 //	SDL_version compiled;
@@ -552,8 +558,35 @@ SDL_Surface* PLAT_initVideo(void) {
 	SDL_SetHint(SDL_HINT_RENDER_DRIVER,"opengl");
 	SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION,"1");
 
+	// Tell EGL to create a GLES2 context BEFORE window creation.
+	// Without this, SDL2/EGL defaults to requesting desktop GL on some MALI builds.
+#ifdef USE_GLES
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#endif
+
 	vid.window   = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w,h, SDL_WINDOW_OPENGL|SDL_WINDOW_SHOWN);
+	LOG_info("PLAT_initVideo: SDL_CreateWindow done\n");
+	sync();
+	LOG_info("video driver: %s\n", SDL_GetCurrentVideoDriver());
+	LOG_info("render drivers (%d):\n", SDL_GetNumRenderDrivers());
+	for (int i = 0; i < SDL_GetNumRenderDrivers(); i++) {
+		SDL_RendererInfo rinfo;
+		SDL_GetRenderDriverInfo(i, &rinfo);
+		LOG_info("  [%d] %s\n", i, rinfo.name);
+	}
+	sync();
 	vid.renderer = SDL_CreateRenderer(vid.window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
+	LOG_info("PLAT_initVideo: SDL_CreateRenderer done\n");
+	sync();
+#if defined(USE_GLES)
+	/* On platforms where SDL's GLES renderer loads libGLESv2 with RTLD_LOCAL,
+	 * PLT entries for gl* symbols in the main binary cannot be resolved lazily.
+	 * Re-open with RTLD_GLOBAL after SDL_CreateRenderer so the global namespace
+	 * sees the already-loaded library. Harmless if already RTLD_GLOBAL or absent. */
+	dlopen("libGLESv2.so.2", RTLD_GLOBAL | RTLD_LAZY);
+#endif
 	SDL_SetRenderDrawBlendMode(vid.renderer, SDL_BLENDMODE_BLEND);
 	SDL_RendererInfo info;
 	SDL_GetRendererInfo(vid.renderer, &info);
@@ -576,8 +609,12 @@ SDL_Surface* PLAT_initVideo(void) {
 	}
 
 	vid.gl_context = SDL_GL_CreateContext(vid.window);
+	LOG_info("PLAT_initVideo: SDL_GL_CreateContext done, ctx=%p\n", (void*)vid.gl_context);
+	sync();
 	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
 	glViewport(0, 0, w, h);
+	LOG_info("PLAT_initVideo: glViewport done\n");
+	sync();
 
 	vid.stream_layer1 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w,h);
 	vid.target_layer1 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET , w,h);
@@ -597,6 +634,8 @@ SDL_Surface* PLAT_initVideo(void) {
 	SDL_SetTextureBlendMode(vid.target_layer3, SDL_BLENDMODE_BLEND); // straight alpha game art
 	SDL_SetTextureBlendMode(vid.target_layer4, premult);
 	SDL_SetTextureBlendMode(vid.target_layer5, SDL_BLENDMODE_BLEND);
+	LOG_info("PLAT_initVideo: texture setup done\n");
+	sync();
 
 	vid.width	= w;
 	vid.height	= h;
