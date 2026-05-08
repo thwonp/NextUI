@@ -1,37 +1,81 @@
 #!/bin/sh
-# NOTE: becomes .tmp_update/zero28.sh
+# NOTE: becomes magicx/init.sh on Moss firmware
 
 PLATFORM="zero28"
 SDCARD_PATH="/mnt/SDCARD"
-UPDATE_PATH="$SDCARD_PATH/NextUI.zip"
+UPDATE_PATH="$SDCARD_PATH/MinUI.zip"
+PAKZ_PATH="$SDCARD_PATH/*.pakz"
 SYSTEM_PATH="$SDCARD_PATH/.system"
 
-CPU_PATH=/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-echo performance > "$CPU_PATH"
+export LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
+export PATH=/usr/bin:$PATH
+
+SHOW_SPLASH="no"
+if [ -f "$UPDATE_PATH" ]; then
+	SHOW_SPLASH="yes"
+else
+	for pakz in $PAKZ_PATH; do
+		if [ -e "$pakz" ]; then
+			SHOW_SPLASH="yes"
+			break
+		fi
+	done
+fi
+
+LOGO_PATH="logo.png"
+if [ -f "$SDCARD_PATH/.media/splash_logo.png" ]; then
+	LOGO_PATH="$SDCARD_PATH/.media/splash_logo.png"
+fi
+
+if [ "$SHOW_SPLASH" = "yes" ]; then
+	cd $(dirname "$0")/$PLATFORM
+	./show2.elf --mode=daemon --image="$LOGO_PATH" --text="Installing..." --progress=-1 &
+fi
+
+echo userspace > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+CPU_PATH=/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed
+CPU_SPEED_PERF=1800000
+echo $CPU_SPEED_PERF > $CPU_PATH
+
+# generic NextUI package install
+for pakz in $PAKZ_PATH; do
+	if [ ! -e "$pakz" ]; then continue; fi
+	echo "TEXT:Extracting $pakz" > /tmp/show2.fifo
+	cd $(dirname "$0")/$PLATFORM
+	./unzip -o -d "$SDCARD_PATH" "$pakz"
+	rm -f "$pakz"
+	if [ -f $SDCARD_PATH/post_install.sh ]; then
+		echo "TEXT:Installing $pakz" > /tmp/show2.fifo
+		$SDCARD_PATH/post_install.sh
+		rm -f $SDCARD_PATH/post_install.sh
+	fi
+done
 
 # install/update
 if [ -f "$UPDATE_PATH" ]; then
 	cd $(dirname "$0")/$PLATFORM
-
 	if [ -d "$SYSTEM_PATH" ]; then
-		./show.elf ./updating.png
+		echo "TEXT:Updating NextUI" > /tmp/show2.fifo
 	else
-		./show.elf ./installing.png
+		echo "TEXT:Installing NextUI" > /tmp/show2.fifo
 	fi
-
-	mv $SDCARD_PATH/.tmp_update $SDCARD_PATH/.tmp_update-old
-	unzip -o "$UPDATE_PATH" -d "$SDCARD_PATH"
+	rm -rf $SYSTEM_PATH/$PLATFORM/bin
+	rm -rf $SYSTEM_PATH/$PLATFORM/lib
+	rm -rf $SYSTEM_PATH/$PLATFORM/paks/MinUI.pak
+	./unzip -o "$UPDATE_PATH" -d "$SDCARD_PATH"
 	rm -f "$UPDATE_PATH"
-	rm -rf $SDCARD_PATH/.tmp_update-old
-
-	# the updated system finishes the install/update
-	$SYSTEM_PATH/$PLATFORM/bin/install.sh
+	if [ -f $SYSTEM_PATH/$PLATFORM/bin/install.sh ]; then
+		$SYSTEM_PATH/$PLATFORM/bin/install.sh
+	fi
 fi
 
-# or launch (and keep launched)
-LAUNCH_PATH="$SYSTEM_PATH/$PLATFORM/paks/NextUI.pak/launch.sh"
-while [ -f "$LAUNCH_PATH" ] ; do
+LAUNCH_PATH="$SYSTEM_PATH/$PLATFORM/paks/MinUI.pak/launch.sh"
+if [ -f "$LAUNCH_PATH" ]; then
 	"$LAUNCH_PATH"
-done
+fi
 
 poweroff # under no circumstances should stock be allowed to touch this card
+while true; do
+	echo "Waiting for poweroff."
+	sleep 1
+done

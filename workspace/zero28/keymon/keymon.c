@@ -5,6 +5,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <signal.h>
 #include <linux/input.h>
 #include <pthread.h>
 
@@ -37,6 +38,9 @@
 static int inputs[INPUT_COUNT] = {};
 static struct input_event ev;
 
+static volatile int quit = 0;
+static void on_term(int sig) { quit = 1; }
+
 static int getInt(char* path) {
 	int i = 0;
 	FILE *file = fopen(path, "r");
@@ -48,11 +52,15 @@ static int getInt(char* path) {
 }
 
 int main (int argc, char *argv[]) {
+	struct sigaction sa = {0};
+	sa.sa_handler = on_term;
+	sigaction(SIGTERM, &sa, NULL);
+
 	InitSettings();
-	
+
 	char path[32];
 	for (int i=0; i<INPUT_COUNT; i++) {
-		sprintf(path, "/dev/input/event%i", i+1); // 2-3
+		sprintf(path, "/dev/input/event%i", i); // TODO: verify event indices on hardware
 		inputs[i] = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 	}
 	
@@ -77,7 +85,7 @@ int main (int argc, char *argv[]) {
 	then = tod.tv_sec * 1000 + tod.tv_usec / 1000; // essential SDL_GetTicks()
 	ignore = 0;
 	
-	while (1) {
+	while (!quit) {
 		gettimeofday(&tod, NULL);
 		now = tod.tv_sec * 1000 + tod.tv_usec / 1000;
 		if (now-then>1000) ignore = 1; // ignore input that arrived during sleep
@@ -99,7 +107,6 @@ int main (int argc, char *argv[]) {
 				switch (ev.code) {
 					case CODE_MENU:
 						menu_pressed = val;
-					break;
 					break;
 					case CODE_PLUS:
 						up_pressed = up_just_pressed = val;
@@ -157,7 +164,10 @@ int main (int argc, char *argv[]) {
 		
 		then = now;
 		ignore = 0;
-		
+
 		usleep(16666); // 60fps
 	}
+
+	for (int i=0; i<INPUT_COUNT; i++)
+		close(inputs[i]);
 }

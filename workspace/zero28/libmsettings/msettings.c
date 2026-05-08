@@ -91,9 +91,9 @@ void InitSettings(void) {
 	}
 	// printf("brightness: %i\nspeaker: %i \n", settings->brightness, settings->speaker);
 	 
-	system("amixer sset 'Headphone' 0"); // 100%
-	system("amixer sset 'digital volume' 0"); // 100%
-	system("amixer sset 'Soft Volume Master' 255"); // 100%
+	system("amixer -D hw:audiocodec sset 'Headphone' 0");      // TODO: verify control name on device
+	system("amixer -D hw:audiocodec sset 'digital volume' 0"); // TODO: verify control name on device
+	system("amixer -D hw:audiocodec sset 'Soft Volume Master' 255"); // TODO: verify control name on device
 	// volume is set with 'DAC volume'
 	
 	SetVolume(GetVolume());
@@ -168,12 +168,13 @@ void SetRawBrightness(int val) { // 0 - 255
 		close(fd);
 	}
 }
+// Control names need hardware verification: run 'amixer -D hw:audiocodec contents' on device
 void SetRawVolume(int val) { // 0 or 96 - 160
 	printf("SetRawVolume(%i)\n", val); fflush(stdout);
 	if (settings->mute) val = 0;
-	
+
 	char cmd[256];
-	sprintf(cmd, "amixer sset 'DAC volume' %i &> /dev/null", val);
+	sprintf(cmd, "amixer -D hw:audiocodec sset 'DAC volume' %i &> /dev/null", val); // TODO: verify control name on device
 	system(cmd);
 	
 	// TODO: unfortunately doing it this way creating a linker nightmare
