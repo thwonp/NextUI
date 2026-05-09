@@ -37,7 +37,25 @@ if [ "$TARGET" = "adb" ]; then
     echo "==> Deploying via ADB..."
     adb wait-for-device
     adb push build/SYSTEM/res/. /mnt/SDCARD/.system/res/
-    adb push build/SYSTEM/zero28/. /mnt/SDCARD/.system/zero28/
+    # Push non-core content unconditionally
+    adb push build/SYSTEM/zero28/bin/. /mnt/SDCARD/.system/zero28/bin/
+    adb push build/SYSTEM/zero28/lib/. /mnt/SDCARD/.system/zero28/lib/
+    adb push build/SYSTEM/zero28/paks/. /mnt/SDCARD/.system/zero28/paks/ 2>/dev/null || true
+    adb push build/SYSTEM/zero28/shaders/. /mnt/SDCARD/.system/zero28/shaders/ 2>/dev/null || true
+    [ -f build/SYSTEM/zero28/system.cfg ] && adb push build/SYSTEM/zero28/system.cfg /mnt/SDCARD/.system/zero28/ || true
+    # Push cores only if not already present on device
+    if [ -d build/SYSTEM/zero28/cores ] && [ "$(ls build/SYSTEM/zero28/cores/*.so 2>/dev/null)" ]; then
+        echo "==> Checking cores (skip existing)..."
+        for so in build/SYSTEM/zero28/cores/*.so; do
+            name=$(basename "$so")
+            if ! adb shell "[ -f /mnt/SDCARD/.system/zero28/cores/$name ]" 2>/dev/null; then
+                echo "    deploying $name"
+                adb push "$so" /mnt/SDCARD/.system/zero28/cores/
+            else
+                echo "    skipping $name (already on device)"
+            fi
+        done
+    fi
     adb shell "killall nextui.elf 2>/dev/null; sleep 0.5; sync"
     echo ""
     echo "Done. NextUI will restart automatically."
