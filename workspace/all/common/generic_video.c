@@ -1456,39 +1456,15 @@ void PLAT_GPU_Flip() {
 		SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
 		SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
 		SDL_SetRenderTarget(vid.renderer, NULL);
-		/* --- rotation blit replacing SDL_RenderPresent --- */
-		SDL_GL_MakeCurrent(vid.window, vid.sdl_renderer_ctx);
-		SDL_RenderFlush(vid.renderer);
-		glFinish();
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glActiveTexture(GL_TEXTURE0);
-		GLfloat tw, th;
-		SDL_GL_BindTexture(vid.target_composite, &tw, &th);
-		glViewport(0, 0, device_height, device_width);
-		glClear(GL_COLOR_BUFFER_BIT);
-		glUseProgram(vid.rotation_program);
-		GLint a_pos = glGetAttribLocation(vid.rotation_program, "a_pos");
-		GLint a_tex = glGetAttribLocation(vid.rotation_program, "a_tex");
-		glUniform1i(glGetUniformLocation(vid.rotation_program, "u_tex"), 0);
-		const GLfloat verts[] = {
-		    -1.0f, -1.0f,  0.0f,  0.0f,
-		    -1.0f,  1.0f,  tw,    0.0f,
-		     1.0f, -1.0f,  0.0f,  th,
-		     1.0f,  1.0f,  tw,    th,
+		SDL_RenderClear(vid.renderer);
+		SDL_Rect dst = {
+		    (device_height - device_width) / 2,
+		    (device_width  - device_height) / 2,
+		    device_width,
+		    device_height
 		};
-		glDisable(GL_BLEND);
-		glBindBuffer(GL_ARRAY_BUFFER, 0);
-		glEnableVertexAttribArray(a_pos);
-		glEnableVertexAttribArray(a_tex);
-		glVertexAttribPointer(a_pos, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), verts);
-		glVertexAttribPointer(a_tex, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), verts + 2);
-		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-		glDisableVertexAttribArray(a_pos);
-		glDisableVertexAttribArray(a_tex);
-		SDL_GL_UnbindTexture(vid.target_composite);
-		SDL_GL_SwapWindow(vid.window);
-		SDL_GL_MakeCurrent(vid.window, vid.gl_context);
-		/* --- end rotation blit --- */
+		SDL_RenderCopyEx(vid.renderer, vid.target_composite, NULL, &dst, 90.0, NULL, SDL_FLIP_NONE);
+		SDL_RenderPresent(vid.renderer);
 	} else {
 		SDL_RenderClear(vid.renderer);
 		SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
@@ -1811,39 +1787,15 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
 			SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
 			SDL_SetRenderTarget(vid.renderer, NULL);
-			/* --- rotation blit replacing SDL_RenderCopyEx + SDL_RenderPresent --- */
-			SDL_GL_MakeCurrent(vid.window, vid.sdl_renderer_ctx);
-			SDL_RenderFlush(vid.renderer);
-			glFinish();                                            /* flush MALI tile cache before sampling composite */
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glActiveTexture(GL_TEXTURE0);                          /* ensure texture bound to unit 0 */
-			GLfloat tw, th;
-			SDL_GL_BindTexture(vid.target_composite, &tw, &th);
-			glViewport(0, 0, device_height, device_width);
-			glClear(GL_COLOR_BUFFER_BIT);
-			glUseProgram(vid.rotation_program);
-			GLint a_pos = glGetAttribLocation(vid.rotation_program, "a_pos");
-			GLint a_tex = glGetAttribLocation(vid.rotation_program, "a_tex");
-			glUniform1i(glGetUniformLocation(vid.rotation_program, "u_tex"), 0);
-			const GLfloat verts[] = {
-			    -1.0f, -1.0f,  0.0f,  0.0f,
-			    -1.0f,  1.0f,  tw,    0.0f,
-			     1.0f, -1.0f,  0.0f,  th,
-			     1.0f,  1.0f,  tw,    th,
+			SDL_RenderClear(vid.renderer);
+			SDL_Rect dst = {
+			    (device_height - device_width) / 2,
+			    (device_width  - device_height) / 2,
+			    device_width,
+			    device_height
 			};
-			glDisable(GL_BLEND);
-			glBindBuffer(GL_ARRAY_BUFFER, 0);                      /* detach SDL's VBO so pointer args are real pointers */
-			glEnableVertexAttribArray(a_pos);
-			glEnableVertexAttribArray(a_tex);
-			glVertexAttribPointer(a_pos, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), verts);
-			glVertexAttribPointer(a_tex, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), verts + 2);
-			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-			glDisableVertexAttribArray(a_pos);
-			glDisableVertexAttribArray(a_tex);
-			SDL_GL_UnbindTexture(vid.target_composite);
-			SDL_GL_SwapWindow(vid.window);
-			SDL_GL_MakeCurrent(vid.window, vid.gl_context);
-			/* --- end rotation blit --- */
+			SDL_RenderCopyEx(vid.renderer, vid.target_composite, NULL, &dst, 90.0, NULL, SDL_FLIP_NONE);
+			SDL_RenderPresent(vid.renderer);
 		} else {
 			SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
 			SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
@@ -1872,39 +1824,15 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
 			SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
 			SDL_SetRenderTarget(vid.renderer, NULL);
-			/* --- rotation blit replacing SDL_RenderCopyEx + SDL_RenderPresent --- */
-			SDL_GL_MakeCurrent(vid.window, vid.sdl_renderer_ctx);
-			SDL_RenderFlush(vid.renderer);
-			glFinish();                                            /* flush MALI tile cache before sampling composite */
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glActiveTexture(GL_TEXTURE0);                          /* ensure texture bound to unit 0 */
-			GLfloat tw, th;
-			SDL_GL_BindTexture(vid.target_composite, &tw, &th);
-			glViewport(0, 0, device_height, device_width);
-			glClear(GL_COLOR_BUFFER_BIT);
-			glUseProgram(vid.rotation_program);
-			GLint a_pos = glGetAttribLocation(vid.rotation_program, "a_pos");
-			GLint a_tex = glGetAttribLocation(vid.rotation_program, "a_tex");
-			glUniform1i(glGetUniformLocation(vid.rotation_program, "u_tex"), 0);
-			const GLfloat verts[] = {
-			    -1.0f, -1.0f,  0.0f,  0.0f,
-			    -1.0f,  1.0f,  tw,    0.0f,
-			     1.0f, -1.0f,  0.0f,  th,
-			     1.0f,  1.0f,  tw,    th,
+			SDL_RenderClear(vid.renderer);
+			SDL_Rect dst = {
+			    (device_height - device_width) / 2,
+			    (device_width  - device_height) / 2,
+			    device_width,
+			    device_height
 			};
-			glDisable(GL_BLEND);
-			glBindBuffer(GL_ARRAY_BUFFER, 0);                      /* detach SDL's VBO so pointer args are real pointers */
-			glEnableVertexAttribArray(a_pos);
-			glEnableVertexAttribArray(a_tex);
-			glVertexAttribPointer(a_pos, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), verts);
-			glVertexAttribPointer(a_tex, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), verts + 2);
-			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-			glDisableVertexAttribArray(a_pos);
-			glDisableVertexAttribArray(a_tex);
-			SDL_GL_UnbindTexture(vid.target_composite);
-			SDL_GL_SwapWindow(vid.window);
-			SDL_GL_MakeCurrent(vid.window, vid.gl_context);
-			/* --- end rotation blit --- */
+			SDL_RenderCopyEx(vid.renderer, vid.target_composite, NULL, &dst, 90.0, NULL, SDL_FLIP_NONE);
+			SDL_RenderPresent(vid.renderer);
 		} else {
 			SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
 			SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
@@ -1946,39 +1874,15 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
         SDL_RenderClear(vid.renderer);
         SDL_RenderCopy(vid.renderer, target, src_rect, dst_rect);
         SDL_SetRenderTarget(vid.renderer, NULL);
-        /* --- rotation blit replacing SDL_RenderCopyEx + SDL_RenderPresent --- */
-        SDL_GL_MakeCurrent(vid.window, vid.sdl_renderer_ctx);
-        SDL_RenderFlush(vid.renderer);
-        glFinish();                                            /* flush MALI tile cache before sampling composite */
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glActiveTexture(GL_TEXTURE0);                          /* ensure texture bound to unit 0 */
-        GLfloat tw, th;
-        SDL_GL_BindTexture(vid.target_composite, &tw, &th);
-        glViewport(0, 0, device_height, device_width);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glUseProgram(vid.rotation_program);
-        GLint a_pos = glGetAttribLocation(vid.rotation_program, "a_pos");
-        GLint a_tex = glGetAttribLocation(vid.rotation_program, "a_tex");
-        glUniform1i(glGetUniformLocation(vid.rotation_program, "u_tex"), 0);
-        const GLfloat verts[] = {
-            -1.0f, -1.0f,  0.0f,  0.0f,
-            -1.0f,  1.0f,  tw,    0.0f,
-             1.0f, -1.0f,  0.0f,  th,
-             1.0f,  1.0f,  tw,    th,
+        SDL_RenderClear(vid.renderer);
+        SDL_Rect dst = {
+            (device_height - device_width) / 2,
+            (device_width  - device_height) / 2,
+            device_width,
+            device_height
         };
-        glDisable(GL_BLEND);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);                      /* detach SDL's VBO so pointer args are real pointers */
-        glEnableVertexAttribArray(a_pos);
-        glEnableVertexAttribArray(a_tex);
-        glVertexAttribPointer(a_pos, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), verts);
-        glVertexAttribPointer(a_tex, 2, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), verts + 2);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        glDisableVertexAttribArray(a_pos);
-        glDisableVertexAttribArray(a_tex);
-        SDL_GL_UnbindTexture(vid.target_composite);
-        SDL_GL_SwapWindow(vid.window);
-        SDL_GL_MakeCurrent(vid.window, vid.gl_context);
-        /* --- end rotation blit --- */
+        SDL_RenderCopyEx(vid.renderer, vid.target_composite, NULL, &dst, 90.0, NULL, SDL_FLIP_NONE);
+        SDL_RenderPresent(vid.renderer);
     } else {
         SDL_RenderCopy(vid.renderer, target, src_rect, dst_rect);
         SDL_RenderPresent(vid.renderer);
