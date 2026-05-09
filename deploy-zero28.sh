@@ -25,6 +25,10 @@ echo "==> Assembling..."
 make setup
 make system PLATFORM=zero28
 
+echo "==> Copying built cores..."
+mkdir -p build/SYSTEM/zero28/cores
+find workspace/zero28/cores/output -name "*.so" -exec cp {} build/SYSTEM/zero28/cores/ \; 2>/dev/null || true
+
 echo "==> Stripping NEEDED entries (prevent double EGL init)..."
 patchelf --remove-needed libGLESv2.so.2 build/SYSTEM/zero28/bin/nextui.elf
 patchelf --remove-needed libUMP.so.3    build/SYSTEM/zero28/bin/nextui.elf
