@@ -772,7 +772,7 @@ SDL_Surface* PLAT_initVideo(void) {
 			"varying vec2 v_tex;\n"
 			"uniform sampler2D u_tex;\n"
 			"void main() {\n"
-			"    gl_FragColor = texture2D(u_tex, v_tex);\n"
+			"    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);\n"
 			"}\n";
 
 		GLuint vs = glCreateShader(GL_VERTEX_SHADER);
