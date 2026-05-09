@@ -488,38 +488,6 @@ void PLAT_initNotificationTexture(void) {
 	notif.tex_h = device_height;
 }
 
-static void log_composite_pixels(const char* tag) {
-    static int frame = 0;
-    if (frame++ >= 3) return;  /* first 3 frames only — keep log readable */
-
-    /* render target must be the composite while we read */
-    SDL_SetRenderTarget(vid.renderer, vid.target_composite);
-
-    struct { int x, y; const char* name; } pts[] = {
-        { device_width / 2, device_height / 2, "center" },
-        { 10,                10,                "tl"     },
-        { device_width - 11, 10,                "tr"     },
-        { 10,                device_height - 11,"bl"     },
-        { device_width - 11, device_height - 11,"br"     },
-    };
-
-    for (int i = 0; i < 5; ++i) {
-        uint32_t px = 0;
-        SDL_Rect r = { pts[i].x, pts[i].y, 1, 1 };
-        int rc = SDL_RenderReadPixels(vid.renderer, &r,
-                                       SDL_PIXELFORMAT_ARGB8888, &px, 4);
-        if (rc != 0) {
-            LOG_info("composite[%s] %s: ReadPixels err=%s\n",
-                     tag, pts[i].name, SDL_GetError());
-        } else {
-            LOG_info("composite[%s] %s (%d,%d) = 0x%08x\n",
-                     tag, pts[i].name, pts[i].x, pts[i].y, px);
-        }
-    }
-    fflush(stdout); sync();   /* per 007f gotcha — flush to SD card */
-
-    SDL_SetRenderTarget(vid.renderer, NULL);
-}
 
 static void sdl_log_stdout(
     void *userdata,
@@ -671,7 +639,7 @@ SDL_Surface* PLAT_initVideo(void) {
 			"varying vec2 v_tex;\n"
 			"uniform sampler2D u_tex;\n"
 			"void main() {\n"
-			"    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);\n"
+			"    gl_FragColor = texture2D(u_tex, v_tex);\n"
 			"}\n";
 
 		GLuint vs = glCreateShader(GL_VERTEX_SHADER);
@@ -1433,6 +1401,13 @@ void PLAT_scrollTextTexture(
 // super fast without update_texture to draw screen
 void PLAT_GPU_Flip() {
 	if (should_rotate) {
+		static int gpu_flip_logged = 0;
+		if (!gpu_flip_logged) {
+			LOG_info("PLAT_GPU_Flip: rotation blit reached\n");
+			fflush(stdout);
+			sync();
+			gpu_flip_logged = 1;
+		}
 		SDL_SetRenderTarget(vid.renderer, vid.target_composite);
 		SDL_RenderClear(vid.renderer);
 		SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
@@ -1449,7 +1424,7 @@ void PLAT_GPU_Flip() {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glActiveTexture(GL_TEXTURE0);
 		GLfloat tw, th;
-		SDL_GL_BindTexture(vid.stream_layer1, &tw, &th);
+		SDL_GL_BindTexture(vid.target_composite, &tw, &th);
 		glViewport(0, 0, device_height, device_width);
 		glClear(GL_COLOR_BUFFER_BIT);
 		glUseProgram(vid.rotation_program);
@@ -1471,7 +1446,7 @@ void PLAT_GPU_Flip() {
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		glDisableVertexAttribArray(a_pos);
 		glDisableVertexAttribArray(a_tex);
-		SDL_GL_UnbindTexture(vid.stream_layer1);
+		SDL_GL_UnbindTexture(vid.target_composite);
 		SDL_GL_SwapWindow(vid.window);
 		SDL_GL_MakeCurrent(vid.window, vid.gl_context);
 		/* --- end rotation blit --- */
@@ -1797,7 +1772,6 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
 			SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
 			SDL_SetRenderTarget(vid.renderer, NULL);
-			log_composite_pixels("flip-noblit");
 			/* --- rotation blit replacing SDL_RenderCopyEx + SDL_RenderPresent --- */
 			SDL_GL_MakeCurrent(vid.window, vid.sdl_renderer_ctx);
 			SDL_RenderFlush(vid.renderer);
@@ -1805,7 +1779,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 			glActiveTexture(GL_TEXTURE0);                          /* ensure texture bound to unit 0 */
 			GLfloat tw, th;
-			SDL_GL_BindTexture(vid.stream_layer1, &tw, &th);
+			SDL_GL_BindTexture(vid.target_composite, &tw, &th);
 			glViewport(0, 0, device_height, device_width);
 			glClear(GL_COLOR_BUFFER_BIT);
 			glUseProgram(vid.rotation_program);
@@ -1827,7 +1801,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 			glDisableVertexAttribArray(a_pos);
 			glDisableVertexAttribArray(a_tex);
-			SDL_GL_UnbindTexture(vid.stream_layer1);
+			SDL_GL_UnbindTexture(vid.target_composite);
 			SDL_GL_SwapWindow(vid.window);
 			SDL_GL_MakeCurrent(vid.window, vid.gl_context);
 			/* --- end rotation blit --- */
@@ -1859,7 +1833,6 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
 			SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
 			SDL_SetRenderTarget(vid.renderer, NULL);
-			log_composite_pixels("flip-mismatch");
 			/* --- rotation blit replacing SDL_RenderCopyEx + SDL_RenderPresent --- */
 			SDL_GL_MakeCurrent(vid.window, vid.sdl_renderer_ctx);
 			SDL_RenderFlush(vid.renderer);
@@ -1867,7 +1840,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 			glActiveTexture(GL_TEXTURE0);                          /* ensure texture bound to unit 0 */
 			GLfloat tw, th;
-			SDL_GL_BindTexture(vid.stream_layer1, &tw, &th);
+			SDL_GL_BindTexture(vid.target_composite, &tw, &th);
 			glViewport(0, 0, device_height, device_width);
 			glClear(GL_COLOR_BUFFER_BIT);
 			glUseProgram(vid.rotation_program);
@@ -1889,7 +1862,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 			glDisableVertexAttribArray(a_pos);
 			glDisableVertexAttribArray(a_tex);
-			SDL_GL_UnbindTexture(vid.stream_layer1);
+			SDL_GL_UnbindTexture(vid.target_composite);
 			SDL_GL_SwapWindow(vid.window);
 			SDL_GL_MakeCurrent(vid.window, vid.gl_context);
 			/* --- end rotation blit --- */
@@ -1934,7 +1907,6 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
         SDL_RenderClear(vid.renderer);
         SDL_RenderCopy(vid.renderer, target, src_rect, dst_rect);
         SDL_SetRenderTarget(vid.renderer, NULL);
-        log_composite_pixels("flip-blit");
         /* --- rotation blit replacing SDL_RenderCopyEx + SDL_RenderPresent --- */
         SDL_GL_MakeCurrent(vid.window, vid.sdl_renderer_ctx);
         SDL_RenderFlush(vid.renderer);
@@ -1942,7 +1914,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glActiveTexture(GL_TEXTURE0);                          /* ensure texture bound to unit 0 */
         GLfloat tw, th;
-        SDL_GL_BindTexture(vid.stream_layer1, &tw, &th);
+        SDL_GL_BindTexture(vid.target_composite, &tw, &th);
         glViewport(0, 0, device_height, device_width);
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(vid.rotation_program);
@@ -1964,7 +1936,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glDisableVertexAttribArray(a_pos);
         glDisableVertexAttribArray(a_tex);
-        SDL_GL_UnbindTexture(vid.stream_layer1);
+        SDL_GL_UnbindTexture(vid.target_composite);
         SDL_GL_SwapWindow(vid.window);
         SDL_GL_MakeCurrent(vid.window, vid.gl_context);
         /* --- end rotation blit --- */
