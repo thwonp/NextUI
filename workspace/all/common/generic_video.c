@@ -38,6 +38,17 @@ static int finalScaleFilter=GL_LINEAR;
 static int reloadShaderTextures = 1;
 static int shaderResetRequested = 0;
 
+// Rotation redirect: when non-zero, runShaderPass binds this FBO instead of FBO 0.
+// Set to rot_fbo during PLAT_GL_Swap on rotating platforms; zero otherwise.
+static GLuint rotation_fbo_redirect = 0;
+
+// Rotation blit resources (PLAT_GL_Swap path, lives in vid.gl_context).
+// Promoted to file scope so PLAT_quitVideo can clean them up.
+static GLuint rot_tex = 0;
+static GLuint rot_fbo = 0;
+static GLuint rot_vao = 0, rot_vbo = 0;
+static GLuint gl_rotation_program = 0;
+
 static SDL_BlendMode getPremultipliedBlendMode(void) {
 	return SDL_ComposeCustomBlendMode(
 		SDL_BLENDFACTOR_ONE,
@@ -836,6 +847,13 @@ void PLAT_quitVideo(void) {
 		SDL_GL_MakeCurrent(vid.window, vid.gl_context);
 	}
 
+	// Rotation blit resources (PLAT_GL_Swap path, lives in vid.gl_context)
+	if (rot_tex)             { glDeleteTextures(1, &rot_tex); rot_tex = 0; }
+	if (rot_fbo)             { glDeleteFramebuffers(1, &rot_fbo); rot_fbo = 0; }
+	if (rot_vbo)             { glDeleteBuffers(1, &rot_vbo); rot_vbo = 0; }
+	if (rot_vao)             { glDeleteVertexArrays(1, &rot_vao); rot_vao = 0; }
+	if (gl_rotation_program) { glDeleteProgram(gl_rotation_program); gl_rotation_program = 0; }
+
 	// Destroy textures while renderer is valid
 	if (vid.target) SDL_DestroyTexture(vid.target);
 	if (vid.effect) SDL_DestroyTexture(vid.effect);
@@ -1498,6 +1516,42 @@ void PLAT_animateSurfaceOpacity(
 SDL_Surface* PLAT_captureRendererToSurface() {
 	if (!vid.renderer) return NULL;
 
+	if (should_rotate && vid.target_composite) {
+		int width = FIXED_WIDTH;
+		int height = FIXED_HEIGHT;
+
+		SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888);
+		if (!surface) {
+			LOG_error("Failed to create surface: %s\n", SDL_GetError());
+			return NULL;
+		}
+
+		Uint32 black = SDL_MapRGBA(surface->format, 0, 0, 0, 255);
+		SDL_FillRect(surface, NULL, black);
+
+		SDL_SetRenderTarget(vid.renderer, vid.target_composite);
+		int rc = SDL_RenderReadPixels(vid.renderer, NULL, SDL_PIXELFORMAT_ARGB8888, surface->pixels, surface->pitch);
+		SDL_SetRenderTarget(vid.renderer, NULL);
+
+		if (rc != 0) {
+			LOG_error("Failed to read pixels from composite: %s\n", SDL_GetError());
+			SDL_FreeSurface(surface);
+			return NULL;
+		}
+
+		// remove transparency (match existing behaviour)
+		Uint32* pixels = (Uint32*)surface->pixels;
+		int total_pixels = (surface->pitch / 4) * surface->h;
+		for (int i = 0; i < total_pixels; i++) {
+			Uint8 r, g, b, a;
+			SDL_GetRGBA(pixels[i], surface->format, &r, &g, &b, &a);
+			pixels[i] = SDL_MapRGBA(surface->format, r, g, b, 255);
+		}
+
+		SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_NONE);
+		return surface;
+	}
+
 	int width, height;
 	SDL_GetRendererOutputSize(vid.renderer, &width, &height);
 
@@ -1995,7 +2049,7 @@ void runShaderPass(GLuint src_texture, GLuint shader_program, GLuint* target_tex
         }
 
     } else {
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, rotation_fbo_redirect);
     }
 
 	if(alpha==1) {
@@ -2268,6 +2322,92 @@ void PLAT_GL_Swap() {
     last_w = vid.blit->src_w;
     last_h = vid.blit->src_h;
 
+    // 3b — One-time init of rotation blit resources (only when rotating).
+    // MUST NOT reuse vid.rotation_program — that was compiled in vid.sdl_renderer_ctx
+    // (a different, non-shared GL context).
+    if (should_rotate && !rot_tex) {
+        const char* vs_src =
+            "attribute vec2 a_pos;\n"
+            "attribute vec2 a_tex;\n"
+            "varying vec2 v_tex;\n"
+            "void main() {\n"
+            "    gl_Position = vec4(a_pos, 0.0, 1.0);\n"
+            "    v_tex = a_tex;\n"
+            "}\n";
+        const char* fs_src =
+            "precision mediump float;\n"
+            "varying vec2 v_tex;\n"
+            "uniform sampler2D u_tex;\n"
+            "void main() {\n"
+            "    gl_FragColor = texture2D(u_tex, v_tex);\n"
+            "}\n";
+        GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(vs, 1, &vs_src, NULL);
+        glCompileShader(vs);
+        GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(fs, 1, &fs_src, NULL);
+        glCompileShader(fs);
+        gl_rotation_program = glCreateProgram();
+        glAttachShader(gl_rotation_program, vs);
+        glAttachShader(gl_rotation_program, fs);
+        glLinkProgram(gl_rotation_program);
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+
+        // Intermediate 640x480 texture + FBO
+        glGenTextures(1, &rot_tex);
+        glBindTexture(GL_TEXTURE_2D, rot_tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, device_width, device_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glGenFramebuffers(1, &rot_fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, rot_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, rot_tex, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // VAO/VBO for rotation blit quad — 90 deg CW vertex mapping.
+        // Derivation: for 90 deg CW, source left->output top, source bottom->output left.
+        // OpenGL texture (u,v): (0,0)=bottom-left, (0,1)=top-left, (1,0)=bottom-right, (1,1)=top-right.
+        // Screen NDC corners -> source texture coords:
+        //   top-left    (-1,+1) -> source bottom-left (0,0)
+        //   bottom-left (-1,-1) -> source bottom-right (1,0)
+        //   top-right   (+1,+1) -> source top-left     (0,1)
+        //   bottom-right(+1,-1) -> source top-right    (1,1)
+        glGenVertexArrays(1, &rot_vao);
+        glGenBuffers(1, &rot_vbo);
+        glBindVertexArray(rot_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, rot_vbo);
+        float verts[] = {
+            -1.0f,  1.0f,  0.0f, 0.0f,
+            -1.0f, -1.0f,  1.0f, 0.0f,
+             1.0f,  1.0f,  0.0f, 1.0f,
+             1.0f, -1.0f,  1.0f, 1.0f,
+        };
+        glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+        GLint posLoc = glGetAttribLocation(gl_rotation_program, "a_pos");
+        if (posLoc >= 0) {
+            glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+            glEnableVertexAttribArray(posLoc);
+        }
+        GLint texLoc = glGetAttribLocation(gl_rotation_program, "a_tex");
+        if (texLoc >= 0) {
+            glVertexAttribPointer(texLoc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+            glEnableVertexAttribArray(texLoc);
+        }
+        glBindVertexArray(0);
+    }
+
+    // 3c — Per-frame: redirect all screen-output shader passes to rot_fbo.
+    if (should_rotate && rot_fbo) {
+        glBindFramebuffer(GL_FRAMEBUFFER, rot_fbo);
+        glViewport(0, 0, device_width, device_height);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        rotation_fbo_redirect = rot_fbo;
+    }
+
     for (int i = 0; i < nrofshaders; i++) {
         int src_w = last_w;
         int src_h = last_h;
@@ -2396,6 +2536,28 @@ void PLAT_GL_Swap() {
             &(Shader){.srcw = notif.tex_w, .srch = notif.tex_h, .texw = notif.tex_w, .texh = notif.tex_h},
             1, GL_NONE
         );
+    }
+
+    // 3d — Rotation blit: composite rot_fbo -> FBO 0 with a 90 deg CW rotation.
+    // Reset redirect first so next frame's runShaderPass calls don't target rot_fbo.
+    if (should_rotate && rot_fbo) {
+        rotation_fbo_redirect = 0;
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, device_height, device_width);  // portrait window: 480x640, note swapped
+        glDisable(GL_BLEND);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glUseProgram(gl_rotation_program);
+        GLint u_tex = glGetUniformLocation(gl_rotation_program, "u_tex");
+        if (u_tex >= 0) glUniform1i(u_tex, 0);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, rot_tex);
+
+        glBindVertexArray(rot_vao);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glBindVertexArray(0);
     }
 
 	SDL_GL_SwapWindow(vid.window);

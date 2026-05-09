@@ -1,0 +1,3 @@
+-I../../zero28/platform
+-DUSE_SDL2
+-DUSE_GLES
