@@ -127,7 +127,7 @@
 ///////////////////////////////
 
 #define SDCARD_PATH "/mnt/SDCARD"
-#define MUTE_VOLUME_RAW 63 // 0 unintuitively is 100% volume
+#define MUTE_VOLUME_RAW 0 // 0 = mute (silent); audible range is 96-160
 #define SAMPLES 400 // fix for (most) fceumm underruns
 
 // this should be set to the devices native screen refresh rate
