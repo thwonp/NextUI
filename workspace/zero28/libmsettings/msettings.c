@@ -204,6 +204,8 @@ void InitSettings(void) {
 	system("amixer -D hw:audiocodec cset name='Headphone Switch' 1");
 	system("amixer -D hw:audiocodec cset name='Headphone Volume' 3");
 	system("amixer -D hw:audiocodec cset name='HpSpeaker Switch' 1");
+	system("amixer sset 'digital volume' 0");       // 0 = 100% for this inverted control
+	system("amixer sset 'Soft Volume Master' 255"); // 255 = 100%
 
 	// This will implicitly update all other settings based on FN switch state
 	SetMute(settings->mute);
@@ -533,9 +535,9 @@ void turboR2(int value) {
 ///////// Platform specific scaling
 
 int scaleVolume(int value) {
-	if (value <= 0) return 0;
-	if (value >= 20) return 100;
-	return 5 * value;
+	int raw = value * 5;
+	if (raw > 0) raw = 96 + (64 * raw) / 100;
+	return raw; // 0 (mute) or 96-160 (audible range)
 }
 
 int scaleBrightness(int value) {
@@ -582,15 +584,14 @@ int scaleFanSpeed(int value) {
 
 ///////// Platform specific, unscaled accessors
 
-void SetRawVolume(int val) { // in: 0-100 (percentage)
+void SetRawVolume(int val) { // 0 (mute) or 96-160 (audible range)
 	if (settings->mute && GetMutedVolume() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
 		val = scaleVolume(GetMutedVolume());
 
 	printf("SetRawVolume(%i)\n", val); fflush(stdout);
 
-	// zero28 ALSA path — control name needs hardware verification
 	char cmd[256];
-	sprintf(cmd, "amixer -D hw:audiocodec sset 'DAC volume' %i%% &> /dev/null", val);
+	sprintf(cmd, "amixer sset 'DAC volume' %i &> /dev/null", val);
 	system(cmd);
 }
 

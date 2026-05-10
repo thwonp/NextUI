@@ -29,7 +29,7 @@ void SetRawColortemp(int value); // 0-255
 void SetRawContrast(int value); // 0-100
 void SetRawSaturation(int value); // 0-100
 void SetRawExposure(int value); // 0-100
-void SetRawVolume(int value); // 0-100
+void SetRawVolume(int value); // 0 (mute) or 96-160 (audible range)
 void SetRawFanSpeed(int value); // 0-31, -1/-2-3 for auto low/med/high
 
 void SetBrightness(int value); // 0-10
