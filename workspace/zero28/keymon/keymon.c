@@ -34,7 +34,7 @@
 #define PRESSED		1
 #define REPEAT		2
 
-#define INPUT_COUNT 2
+#define INPUT_COUNT 3
 static int inputs[INPUT_COUNT] = {};
 static struct input_event ev;
 
