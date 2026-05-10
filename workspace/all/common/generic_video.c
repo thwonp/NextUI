@@ -24,6 +24,7 @@
 #include <math.h>
 #include <unistd.h>
 #include <dlfcn.h>
+#include <sys/stat.h>
 
 #if defined(__has_feature)
 #if __has_feature(thread_sanitizer)
@@ -199,15 +200,23 @@ int extractPragmaParameters(const char *shaderSource, ShaderParam *params, int m
     return paramCount; // number of parameters found
 }
 
-GLuint link_program(GLuint vertex_shader, GLuint fragment_shader, const char* cache_key) {
+GLuint link_program(GLuint vertex_shader, GLuint fragment_shader, const char* cache_key, const char* source_path) {
     char cache_path[512];
     snprintf(cache_path, sizeof(cache_path), SDCARD_PATH "/.shadercache/%s.bin", cache_key);
 
     GLuint program = glCreateProgram();
     GLint success;
 
-    // Try to load cached binary first
-    FILE *f = fopen(cache_path, "rb");
+    // Try to load cached binary first, unless source is newer than the cache.
+    // Prefer recompile on any stat failure (missing cache, missing source, NULL source_path).
+    int use_cache = 0;
+    if (source_path != NULL) {
+        struct stat src_st, bin_st;
+        if (stat(source_path, &src_st) == 0 && stat(cache_path, &bin_st) == 0) {
+            use_cache = (src_st.st_mtime <= bin_st.st_mtime);
+        }
+    }
+    FILE *f = use_cache ? fopen(cache_path, "rb") : NULL;
     if (f) {
         GLint binaryFormat;
         fread(&binaryFormat, sizeof(GLint), 1, f);
@@ -464,20 +473,25 @@ void PLAT_initShaders() {
 	GLuint vertex;
 	GLuint fragment;
 
+	char sysshader_path[512];
+
 	// Final  display shader (simple texture blit)
 	vertex = load_shader_from_file(GL_VERTEX_SHADER, "default.glsl",SYSSHADERS_FOLDER);
 	fragment = load_shader_from_file(GL_FRAGMENT_SHADER, "default.glsl",SYSSHADERS_FOLDER);
-	g_shader_default = link_program(vertex, fragment,"default.glsl");
+	snprintf(sysshader_path, sizeof(sysshader_path), SYSSHADERS_FOLDER "/default.glsl");
+	g_shader_default = link_program(vertex, fragment, "default.glsl", sysshader_path);
 
 	// Overlay shader, for png overlays and static line/grid overlays
 	vertex = load_shader_from_file(GL_VERTEX_SHADER, "overlay.glsl",SYSSHADERS_FOLDER);
 	fragment = load_shader_from_file(GL_FRAGMENT_SHADER, "overlay.glsl",SYSSHADERS_FOLDER);
-	g_shader_overlay = link_program(vertex, fragment,"overlay.glsl");
+	snprintf(sysshader_path, sizeof(sysshader_path), SYSSHADERS_FOLDER "/overlay.glsl");
+	g_shader_overlay = link_program(vertex, fragment, "overlay.glsl", sysshader_path);
 
 	// Stand-In if a shader is supposed to be applied, but wasnt compiled properly (shaper_p == NULL)
 	vertex = load_shader_from_file(GL_VERTEX_SHADER, "noshader.glsl",SYSSHADERS_FOLDER);
 	fragment = load_shader_from_file(GL_FRAGMENT_SHADER, "noshader.glsl",SYSSHADERS_FOLDER);
-	g_noshader = link_program(vertex, fragment,"noshader.glsl");
+	snprintf(sysshader_path, sizeof(sysshader_path), SYSSHADERS_FOLDER "/noshader.glsl");
+	g_noshader = link_program(vertex, fragment, "noshader.glsl", sysshader_path);
 
 	LOG_info("default shaders loaded, %i\n\n",g_shader_default);
 }
@@ -759,7 +773,7 @@ void PLAT_updateShader(int i, const char *filename, int *scale, int *filter, int
 			LOG_info("Deleting previous shader %i\n",shader->shader_p);
 			glDeleteProgram(shader->shader_p);
 		}
-        shader->shader_p = link_program(vertex_shader1, fragment_shader1,filename);
+        shader->shader_p = link_program(vertex_shader1, fragment_shader1, filename, filepath);
 
 		shader->u_FrameDirection = glGetUniformLocation( shader->shader_p, "FrameDirection");
 		shader->u_FrameCount = glGetUniformLocation( shader->shader_p, "FrameCount");
