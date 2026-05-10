@@ -24,6 +24,7 @@
 #include <math.h>
 #include <unistd.h>
 #include <dlfcn.h>
+#include <sys/stat.h>
 
 #if defined(__has_feature)
 #if __has_feature(thread_sanitizer)
@@ -233,15 +234,23 @@ int extractPragmaParameters(const char *shaderSource, ShaderParam *params, int m
     return paramCount; // number of parameters found
 }
 
-GLuint link_program(GLuint vertex_shader, GLuint fragment_shader, const char* cache_key) {
+GLuint link_program(GLuint vertex_shader, GLuint fragment_shader, const char* cache_key, const char* source_path) {
     char cache_path[512];
     snprintf(cache_path, sizeof(cache_path), SDCARD_PATH "/.shadercache/%s.bin", cache_key);
 
     GLuint program = glCreateProgram();
     GLint success;
 
-    // Try to load cached binary first
-    FILE *f = fopen(cache_path, "rb");
+    // Try to load cached binary first, unless source is newer than the cache.
+    // Prefer recompile on any stat failure (missing cache, missing source, NULL source_path).
+    int use_cache = 0;
+    if (source_path != NULL) {
+        struct stat src_st, bin_st;
+        if (stat(source_path, &src_st) == 0 && stat(cache_path, &bin_st) == 0) {
+            use_cache = (src_st.st_mtime <= bin_st.st_mtime);
+        }
+    }
+    FILE *f = use_cache ? fopen(cache_path, "rb") : NULL;
     if (f) {
         GLint binaryFormat;
         fread(&binaryFormat, sizeof(GLint), 1, f);
@@ -518,7 +527,7 @@ void init_shader_program(ShaderProgram * shader, const char * path, const char *
 		LOG_info("Deleting previous shader %i\n",shader->shader_p);
 		glDeleteProgram(shader->shader_p);
 	}
-	shader->shader_p = link_program(vertex_shader1, fragment_shader1, filename);
+	shader->shader_p = link_program(vertex_shader1, fragment_shader1, filename, filepath);
 
 
 	if (shader->shader_p == 0) {
@@ -582,7 +591,7 @@ void PLAT_initShaders() {
 
 	// Stand-In if a shader is supposed to be applied, but wasnt compiled properly (shaper_p == NULL)
 	init_shader_program(&s_noshader, SYSSHADERS_FOLDER, "noshader.glsl");
-	
+
 	LOG_info("default shaders loaded, %i\n\n", s_shader_default.shader_p);
 }
 
