@@ -2512,21 +2512,58 @@ void PLAT_pixelFlipper(uint8_t* pixels, int width, int height) {
 
 unsigned char* PLAT_GL_screenCapture(int* outWidth, int* outHeight) {
     glViewport(0, 0, device_width, device_height);
-    GLint viewport[4];
-    glGetIntegerv(GL_VIEWPORT, viewport);
 
-    int width = viewport[2];
-    int height = viewport[3];
+    if (should_rotate) {
+        // FBO 0 is portrait-sized (device_height x device_width = 480x640) due to
+        // the 90° CW MVPMatrix applied in runShaderPass (007ar). Read the full FBO.
+        int read_w = device_height; // 480
+        int read_h = device_width;  // 640
 
-    if (outWidth) *outWidth = width;
-    if (outHeight) *outHeight = height;
+        unsigned char* raw = malloc(read_w * read_h * 4);
+        if (!raw) return NULL;
 
-    unsigned char* pixels = malloc(width * height * 4); // RGBA
+        glReadPixels(0, 0, read_w, read_h, GL_RGBA, GL_UNSIGNED_BYTE, raw);
+
+        // Rotate 90° CCW to undo the 90° CW MVPMatrix, producing a landscape buffer.
+        unsigned char* dst = malloc(device_width * device_height * 4);
+        if (!dst) {
+            free(raw);
+            return NULL;
+        }
+
+        // CCW rotation: dst pixel (x, y) comes from raw pixel (y, device_width-1-x)
+        // where raw is indexed as [row * read_w + col] and row = device_width-1-x, col = y.
+        for (int y = 0; y < device_height; y++) {
+            for (int x = 0; x < device_width; x++) {
+                memcpy(
+                    dst + (y * device_width + x) * 4,
+                    raw + ((device_width - 1 - x) * read_w + y) * 4,
+                    4
+                );
+            }
+        }
+
+        free(raw);
+
+        // Apply Y-flip so callers see the same convention as the unrotated path.
+        PLAT_pixelFlipper(dst, device_width, device_height);
+
+        if (outWidth)  *outWidth  = device_width;
+        if (outHeight) *outHeight = device_height;
+
+        return dst; // caller must free
+    }
+
+    // Unrotated path — behavior unchanged, glGetIntegerv round-trip removed.
+    if (outWidth)  *outWidth  = device_width;
+    if (outHeight) *outHeight = device_height;
+
+    unsigned char* pixels = malloc(device_width * device_height * 4); // RGBA
     if (!pixels) return NULL;
 
-    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glReadPixels(0, 0, device_width, device_height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 
-	PLAT_pixelFlipper(pixels, width, height);
+    PLAT_pixelFlipper(pixels, device_width, device_height);
 
     return pixels; // caller must free
 }
