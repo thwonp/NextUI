@@ -44,11 +44,12 @@ if [ "$TARGET" = "adb" ]; then
     adb push build/SYSTEM/zero28/shaders/. /mnt/SDCARD/.system/zero28/shaders/ 2>/dev/null || true
     [ -f build/SYSTEM/zero28/system.cfg ] && adb push build/SYSTEM/zero28/system.cfg /mnt/SDCARD/.system/zero28/ || true
     # Push cores only if not already present on device
-    if [ -d build/SYSTEM/zero28/cores ] && [ "$(ls build/SYSTEM/zero28/cores/*.so 2>/dev/null)" ]; then
+    if compgen -G "build/SYSTEM/zero28/cores/*.so" > /dev/null 2>&1; then
         echo "==> Checking cores (skip existing)..."
         for so in build/SYSTEM/zero28/cores/*.so; do
             name=$(basename "$so")
-            if ! adb shell "[ -f /mnt/SDCARD/.system/zero28/cores/$name ]" 2>/dev/null; then
+            exists=$(adb shell "[ -f /mnt/SDCARD/.system/zero28/cores/$name ] && echo yes || echo no" 2>/dev/null | tr -d '\r\n')
+            if [ "$exists" != "yes" ]; then
                 echo "    deploying $name"
                 adb push "$so" /mnt/SDCARD/.system/zero28/cores/
             else
