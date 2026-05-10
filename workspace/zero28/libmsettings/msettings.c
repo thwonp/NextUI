@@ -204,7 +204,7 @@ void InitSettings(void) {
 	system("amixer -D hw:audiocodec cset name='Headphone Switch' 1");
 	system("amixer -D hw:audiocodec cset name='Headphone Volume' 3");
 	system("amixer -D hw:audiocodec cset name='HpSpeaker Switch' 1");
-	system("amixer sset 'digital volume' 0");       // 0 = 100% for this inverted control
+	system("amixer sset 'digital volume' 63");      // 63 = max (0dB)
 	system("amixer sset 'Soft Volume Master' 255"); // 255 = 100%
 
 	// This will implicitly update all other settings based on FN switch state
