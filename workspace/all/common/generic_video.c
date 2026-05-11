@@ -838,8 +838,10 @@ void PLAT_setShaders(int nr) {
 static void clearVideo(void) {
 	for (int i=0; i<3; i++) {
 		SDL_RenderClear(vid.renderer);
-		SDL_FillRect(vid.screen, NULL, vid.clear_color);
-		SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
+		if (!should_rotate) {
+			SDL_FillRect(vid.screen, NULL, vid.clear_color);
+			SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
+		}
 		SDL_RenderPresent(vid.renderer);
 	}
 }
@@ -885,12 +887,15 @@ void PLAT_quitVideo(void) {
 	vid.gl_context = NULL;
 	SDL_FreeSurface(vid.screen);
 
+	// Zero fb0 before dropping the EGL surface: DestroyWindow causes display to fall back to
+	// fb0; clearing it here ensures that fallback is black rather than stale pak content.
+	system("cat /dev/zero > /dev/fb0 2>/dev/null");
+
 	// Cleanup and shutdown
 	SDL_DestroyWindow(vid.window);
 	if (overlay_path) free(overlay_path);
 
 	SDL_QuitSubSystem(SDL_INIT_VIDEO);
-	system("cat /dev/zero > /dev/fb0 2>/dev/null");
 }
 
 void PLAT_clearVideo(SDL_Surface* screen) {
