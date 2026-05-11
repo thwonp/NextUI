@@ -60,7 +60,8 @@ int main (int argc, char *argv[]) {
 
 	char path[32];
 	for (int i=0; i<INPUT_COUNT; i++) {
-		sprintf(path, "/dev/input/event%i", i); // TODO: verify event indices on hardware
+		// event0=axp2202-pek, event1=audiocodec Jack, event2=magicx-input
+		sprintf(path, "/dev/input/event%i", i);
 		inputs[i] = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 	}
 	
