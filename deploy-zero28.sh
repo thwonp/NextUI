@@ -27,7 +27,7 @@ make system PLATFORM=zero28
 
 echo "==> Writing version.txt..."
 VERSION_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
-printf "NextUI\n%s" "$VERSION_HASH" > build/SYSTEM/version.txt
+echo "dev-$VERSION_HASH" > build/SYSTEM/version.txt
 
 echo "==> Copying built cores..."
 mkdir -p build/SYSTEM/zero28/cores
