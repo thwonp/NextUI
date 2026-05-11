@@ -544,7 +544,6 @@ SDL_Rect MenuList::itemSizeHint(const AbstractMenuItem &item)
 
 void MenuList::draw(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Rect &dstTitle)
 {
-    LOG_info("DBG MenuList::draw type=%d\n", (int)type);
     assert(layout_called);
     ReadLock r(itemLock);
 
@@ -616,7 +615,6 @@ void MenuList::draw(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Rect &d
 
 void MenuList::drawList(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Rect &dstTitle)
 {
-    LOG_info("DBG drawList count=%d\n", (int)items.size());
     // we ignore type here, it all paints the same.
     if (max_width == 0)
     {
@@ -645,7 +643,6 @@ void MenuList::drawList(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Rec
 
 void MenuList::drawListItem(SDL_Surface *surface, const SDL_Rect &dst, const AbstractMenuItem &item, bool selected)
 {
-    LOG_info("DBG drawListItem: '%s'\n", item.getName().c_str());
     SDL_Color text_color = uintToColour(THEME_COLOR4_255);
     SDL_Surface *text;
 
@@ -660,12 +657,9 @@ void MenuList::drawListItem(SDL_Surface *surface, const SDL_Rect &dst, const Abs
         GFX_blitPillDarkCPP(ASSET_BUTTON, surface, {dst.x, dst.y, w, SCALE1(BUTTON_SIZE)});
         text_color = uintToColour(THEME_COLOR5_255);
     }
-    LOG_info("DBG drawListItem: calling TTF for '%s' font.small=%p\n", item.getName().c_str(), (void*)font.small);
     text = TTF_RenderUTF8_Blended(font.small, item.getName().c_str(), text_color);
-    LOG_info("DBG drawListItem: TTF result=%p\n", (void*)text);
     SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + SCALE1(OPTION_PADDING), dst.y  + ((dst.h - text->h) / 2)});
     SDL_FreeSurface(text);
-    LOG_info("DBG drawListItem done: '%s'\n", item.getName().c_str());
 }
 
 void MenuList::drawFixed(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Rect &dstTitle)
@@ -681,7 +675,6 @@ void MenuList::drawFixed(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Re
     int selected_row = scope.selected - scope.start;
     for (int i = scope.start, j = 0; i < scope.end; i++, j++)
     {
-        LOG_info("DBG drawFixed: item '%s' type=%d\n", items[i]->getName().c_str(), (int)items[i]->getType());
         auto pos = dy(rect, SCALE1(j * BUTTON_SIZE));
         pos.h = SCALE1(BUTTON_SIZE);
         drawFixedItem(surface, pos, *items[i], j == selected_row);
@@ -723,9 +716,7 @@ void MenuList::drawFixedItem(SDL_Surface *surface, const SDL_Rect &dst, const Ab
 
     if (item.getValue().has_value())
     {
-        LOG_info("DBG drawFixedItem label: '%s' label='%s'\n", item.getName().c_str(), item.getLabel().c_str());
         text = TTF_RenderUTF8_Blended(font.tiny, item.getLabel().c_str(), text_color_value);
-        LOG_info("DBG drawFixedItem label TTF result=%p\n", (void*)text);
 
         if (item.getType() == ListItemType::Color)
         {
@@ -784,9 +775,7 @@ void MenuList::drawFixedItem(SDL_Surface *surface, const SDL_Rect &dst, const Ab
         text_color = uintToColour(THEME_COLOR5_255);
     }
 
-    LOG_info("DBG drawFixedItem name: '%s'\n", item.getName().c_str());
     text = TTF_RenderUTF8_Blended(font.small, item.getName().c_str(), text_color);
-    LOG_info("DBG drawFixedItem name TTF result=%p\n", (void*)text);
     if (text) {
         SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + SCALE1(OPTION_PADDING), dst.y + ((dst.h - text->h) / 2)});
         SDL_FreeSurface(text);
