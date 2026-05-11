@@ -16,6 +16,7 @@
 #include "platform.h"
 #include "api.h"
 #include "utils.h"
+#include <string.h>
 #include <time.h>
 #include <pthread.h>
 #include <dirent.h>
@@ -211,7 +212,30 @@ char* PLAT_getModel(void) {
 }
 
 void PLAT_getOsVersionInfo(char* output_str, size_t max_len) {
-	getFile("/etc/version", output_str, max_len);
+	output_str[0] = '\0';
+	FILE *f = fopen("/etc/openwrt_release", "r");
+	if (!f) {
+		strncpy(output_str, "Unknown", max_len - 1);
+		output_str[max_len - 1] = '\0';
+		return;
+	}
+	char line[256];
+	while (fgets(line, sizeof(line), f)) {
+		if (strncmp(line, "DISTRIB_DESCRIPTION=", 20) != 0)
+			continue;
+		// value is 'quoted string\n'
+		char *val = line + 20;
+		if (*val == '\'') val++;
+		size_t len = strlen(val);
+		while (len > 0 && (val[len-1] == '\n' || val[len-1] == '\r' || val[len-1] == '\''))
+			val[--len] = '\0';
+		snprintf(output_str, max_len, "%s", val);
+		fclose(f);
+		return;
+	}
+	fclose(f);
+	strncpy(output_str, "Unknown", max_len - 1);
+	output_str[max_len - 1] = '\0';
 }
 
 ///////////////////////////////
