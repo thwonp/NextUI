@@ -43,6 +43,8 @@ if [ "$TARGET" = "adb" ]; then
     adb push build/SYSTEM/zero28/paks/. /mnt/SDCARD/.system/zero28/paks/ 2>/dev/null || true
     adb push build/SYSTEM/zero28/shaders/. /mnt/SDCARD/.system/zero28/shaders/ 2>/dev/null || true
     [ -f build/SYSTEM/zero28/system.cfg ] && adb push build/SYSTEM/zero28/system.cfg /mnt/SDCARD/.system/zero28/ || true
+    adb shell "mkdir -p /mnt/SDCARD/Tools/zero28"
+    adb push build/EXTRAS/Tools/zero28/. /mnt/SDCARD/Tools/zero28/
     # Push cores only if not already present on device
     if compgen -G "build/SYSTEM/zero28/cores/*.so" > /dev/null 2>&1; then
         echo "==> Checking cores (skip existing)..."

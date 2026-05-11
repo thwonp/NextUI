@@ -497,10 +497,6 @@ int main(int argc, char *argv[])
             { return TIME_getNetworkTimeSync(); }, [](const std::any &value)
             { TIME_setNetworkTimeSync(std::any_cast<bool>(value)); },
             []() { TIME_setNetworkTimeSync(false);}}, // default from stock
-            new MenuItem{ListItemType::Generic, "Time zone", "Your time zone", tz_values, tz_labels, []() -> std::any
-            { return std::string(TIME_getCurrentTimezone()); }, [](const std::any &value)
-            { TIME_setCurrentTimezone(std::any_cast<std::string>(value).c_str()); },
-            []() { TIME_setCurrentTimezone("Asia/Shanghai");}}, // default from Stock
             new MenuItem{ListItemType::Generic, "Save format", "The save format to use.\nMinUI: Game.gba.sav, Retroarch: Game.srm, Generic: Game.sav",
             {(int)SAVE_FORMAT_SAV, (int)SAVE_FORMAT_SRM, (int)SAVE_FORMAT_SRM_UNCOMPRESSED, (int)SAVE_FORMAT_GEN},
             {"MinUI (default)", "Retroarch (compressed)", "Retroarch (uncompressed)", "Generic"}, []() -> std::any
@@ -518,6 +514,14 @@ int main(int argc, char *argv[])
             [](const std::any &value){ CFG_setUseExtractedFileName(std::any_cast<bool>(value)); },
             []() { CFG_setUseExtractedFileName(CFG_DEFAULT_EXTRACTEDFILENAME);}}
         };
+
+        if (tz_count > 0) {
+            systemItems.push_back(
+                new MenuItem{ListItemType::Generic, "Time zone", "Your time zone", tz_values, tz_labels, []() -> std::any
+                { return std::string(TIME_getCurrentTimezone()); }, [](const std::any &value)
+                { TIME_setCurrentTimezone(std::any_cast<std::string>(value).c_str()); },
+                []() { TIME_setCurrentTimezone("Asia/Shanghai");}});
+        }
 
         if(deviceInfo.getPlatform() == DeviceInfo::tg5040)
         {
