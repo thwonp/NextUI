@@ -41,6 +41,7 @@ if [ "$TARGET" = "adb" ]; then
     echo "==> Deploying via ADB..."
     adb wait-for-device
     adb push build/SYSTEM/res/. /mnt/SDCARD/.system/res/
+    adb push build/SYSTEM/version.txt /mnt/SDCARD/.system/version.txt
     # Push non-core content unconditionally
     adb push build/SYSTEM/zero28/bin/. /mnt/SDCARD/.system/zero28/bin/
     adb push build/SYSTEM/zero28/lib/. /mnt/SDCARD/.system/zero28/lib/
