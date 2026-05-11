@@ -167,6 +167,17 @@ void PLAT_powerOff(int reboot) {
 
 int PLAT_supportsDeepSleep(void) { return 1; }
 
+int PLAT_deepSleep(void)
+{
+	const char *state_path = "/sys/power/state";
+	int fd = open(state_path, O_WRONLY);
+	if (fd < 0)
+		return -1;
+	int ret = write(fd, "freeze", 6);
+	close(fd);
+	return (ret == 6) ? 0 : -1;
+}
+
 ///////////////////////////////
 
 #define GOVERNOR_PATH "/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed"
