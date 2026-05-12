@@ -2,6 +2,7 @@
 # MinUI.pak — zero28 (Moss/MagicX)
 
 export PLATFORM="zero28"
+export DEVICE="zero28"
 export SDCARD_PATH="/mnt/SDCARD"
 export BIOS_PATH="$SDCARD_PATH/Bios"
 export ROMS_PATH="$SDCARD_PATH/Roms"
