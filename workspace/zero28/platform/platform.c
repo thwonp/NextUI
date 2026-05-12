@@ -176,7 +176,7 @@ int PLAT_deepSleep(void)
 		int fd = open(state_path, O_WRONLY);
 		if (fd < 0)
 			return -1;
-		write(fd, "freeze", 6);
+		write(fd, "mem", 3);
 		close(fd);
 		SDL_Delay(100); // let input subsystem settle before checking wake event
 	}
