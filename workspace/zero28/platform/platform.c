@@ -170,7 +170,6 @@ ConnectionStrength PLAT_connectionStrength(void) {
 		return SIGNAL_STRENGTH_LOW;
 }
 
-bool PLAT_hasWifi(void) { return true; }
 bool PLAT_hasBluetooth(void) { return false; }
 bool PLAT_btIsConnected(void) { return false; }
 
