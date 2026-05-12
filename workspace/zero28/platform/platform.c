@@ -121,13 +121,58 @@ void PLAT_getBatteryStatusFine(int* is_charging, int* charge)
 
 ///////////////////////////////
 
-void PLAT_getNetworkStatus(int* is_online) {
-	if (is_online) *is_online = 0;
+static struct WIFI_connection connection = {
+	.valid = false,
+	.freq = -1,
+	.link_speed = -1,
+	.noise = -1,
+	.rssi = -1,
+	.ip = {0},
+	.ssid = {0},
+};
+
+static inline void connection_reset(struct WIFI_connection *c)
+{
+	c->valid = false;
+	c->freq = -1;
+	c->link_speed = -1;
+	c->noise = -1;
+	c->rssi = -1;
+	*c->ip = '\0';
+	*c->ssid = '\0';
+}
+
+static bool bluetoothConnected = false;
+
+void PLAT_getNetworkStatus(int* is_online)
+{
+	if (WIFI_enabled())
+		WIFI_connectionInfo(&connection);
+	else
+		connection_reset(&connection);
+
+	if (is_online)
+		*is_online = (connection.valid && connection.ssid[0] != '\0');
+
+	bluetoothConnected = false; // BT not available on this Moss image
 }
 
 ConnectionStrength PLAT_connectionStrength(void) {
-	return SIGNAL_STRENGTH_OFF;
+	if (!WIFI_enabled() || !connection.valid || connection.rssi == -1)
+		return SIGNAL_STRENGTH_OFF;
+	else if (connection.rssi == 0)
+		return SIGNAL_STRENGTH_DISCONNECTED;
+	else if (connection.rssi >= -60)
+		return SIGNAL_STRENGTH_HIGH;
+	else if (connection.rssi >= -70)
+		return SIGNAL_STRENGTH_MED;
+	else
+		return SIGNAL_STRENGTH_LOW;
 }
+
+bool PLAT_hasWifi(void) { return true; }
+bool PLAT_hasBluetooth(void) { return false; }
+bool PLAT_btIsConnected(void) { return false; }
 
 ///////////////////////////////
 
@@ -397,3 +442,6 @@ void PLAT_setCurrentTimezone(const char* tz) {
 
 // We use the generic video implementation here
 #include "generic_video.c"
+
+#define WIFI_SOCK_DIR "/etc/wifi/sockets"
+#include "generic_wifi.c"
