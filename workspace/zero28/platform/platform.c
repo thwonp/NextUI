@@ -429,8 +429,7 @@ void PLAT_setCurrentTimezone(const char* tz) {
 	}
 	free(tz_path);
 
-	// TODO: verify whether Moss has hwclock before enabling the following line
-	// system("hwclock -u -w && hwclock --systz -u");
+	system("hwclock -u -w");
 }
 
 /////////////////////////
