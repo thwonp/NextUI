@@ -115,7 +115,13 @@ void PLAT_getBatteryStatus(int* is_charging, int* charge) {
 
 void PLAT_getBatteryStatusFine(int* is_charging, int* charge)
 {
-	*is_charging = getInt("/sys/class/power_supply/axp2202-usb/online");
+	char status[32] = {0};
+	getFile("/sys/class/power_supply/axp2202-battery/status", status, sizeof(status));
+	// trim trailing newline
+	size_t len = strlen(status);
+	if (len > 0 && status[len - 1] == '\n')
+		status[len - 1] = '\0';
+	*is_charging = (strcmp(status, "Charging") == 0);
 	*charge = getInt("/sys/class/power_supply/axp2202-battery/capacity");
 }
 
@@ -251,6 +257,21 @@ int PLAT_pickSampleRate(int requested, int max) {
 	return MIN(requested, max);
 }
 
+void PLAT_overrideMute(int mute) {
+	if (mute) {
+		system("amixer sset 'DAC volume' 0 &> /dev/null");
+	}
+	// Unmute is implicit: callers restore via SetVolume() / SetRawVolume.
+}
+
+void PLAT_getCPUSpeed(void) {
+	perf.cpu_speed = getInt("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq") / 1000;
+}
+
+void PLAT_getCPUTemp(void) {
+	perf.cpu_temp = getInt("/sys/class/thermal/thermal_zone0/temp") / 1000;
+}
+
 char* PLAT_getModel(void) {
 	return "Mini Zero 28";
 }
@@ -287,6 +308,26 @@ void PLAT_getOsVersionInfo(char* output_str, size_t max_len) {
 void PLAT_initDefaultLeds(void) {}
 
 ///////////////////////////////
+
+void PLAT_initPlatform(void) {
+	// Apply saved NTP state — Moss does not autostart sysntpd
+	if (CFG_getNTP())
+		system("/etc/init.d/sysntpd start &");
+	else
+		system("/etc/init.d/sysntpd stop &");
+}
+
+bool PLAT_getNetworkTimeSync(void) {
+	return CFG_getNTP();
+}
+
+void PLAT_setNetworkTimeSync(bool on) {
+	CFG_setNTP(on);
+	if (on)
+		system("/etc/init.d/sysntpd start &");
+	else
+		system("/etc/init.d/sysntpd stop &");
+}
 
 int PLAT_setDateTime(int y, int m, int d, int h, int i, int s) {
 	char cmd[512];
