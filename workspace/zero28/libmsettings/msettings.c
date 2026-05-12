@@ -669,8 +669,6 @@ void SetRawVolume(int val) { // 0 (mute) or 96-160 (audible range)
 	if (settings->mute && GetMutedVolume() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
 		val = scaleVolume(GetMutedVolume());
 
-	printf("SetRawVolume(%i)\n", val); fflush(stdout);
-
 	char cmd[256];
 	sprintf(cmd, "amixer sset 'DAC volume' %i &> /dev/null", val);
 	system(cmd);
@@ -678,8 +676,6 @@ void SetRawVolume(int val) { // 0 (mute) or 96-160 (audible range)
 
 #define DISP_LCD_SET_BRIGHTNESS  0x102
 void SetRawBrightness(int val) { // 0-255
-	printf("SetRawBrightness(%i)\n", val); fflush(stdout);
-
 	if (val > 0) val = 256 - val;  // DISP_LCD_SET_BRIGHTNESS: higher raw = dimmer on this display
 	int fd = open("/dev/disp", O_RDWR);
 	if (fd >= 0) {
@@ -690,8 +686,6 @@ void SetRawBrightness(int val) { // 0-255
 }
 
 void SetRawColortemp(int val) {
-	printf("SetRawColortemp(%i)\n", val); fflush(stdout);
-
 	FILE *fd = fopen("/sys/devices/virtual/disp/disp/attr/color_temperature", "w");
 	if (fd) {
 		fprintf(fd, "%i", val);
@@ -699,8 +693,6 @@ void SetRawColortemp(int val) {
 	}
 }
 void SetRawContrast(int val) {
-	printf("SetRawContrast(%i)\n", val); fflush(stdout);
-
 	FILE *fd = fopen("/sys/devices/virtual/disp/disp/attr/enhance_contrast", "w");
 	if (fd) {
 		fprintf(fd, "%i", val);
@@ -708,8 +700,6 @@ void SetRawContrast(int val) {
 	}
 }
 void SetRawSaturation(int val) {
-	printf("SetRawSaturation(%i)\n", val); fflush(stdout);
-
 	FILE *fd = fopen("/sys/devices/virtual/disp/disp/attr/enhance_saturation", "w");
 	if (fd) {
 		fprintf(fd, "%i", val);
@@ -717,8 +707,6 @@ void SetRawSaturation(int val) {
 	}
 }
 void SetRawExposure(int val) {
-	printf("SetRawExposure(%i)\n", val); fflush(stdout);
-
 	FILE *fd = fopen("/sys/devices/virtual/disp/disp/attr/enhance_bright", "w");
 	if (fd) {
 		fprintf(fd, "%i", val);
