@@ -215,15 +215,11 @@ int PLAT_supportsDeepSleep(void) { return 1; }
 int PLAT_deepSleep(void)
 {
 	const char *state_path = "/sys/power/state";
-
-	while (!PAD_wake()) {
-		int fd = open(state_path, O_WRONLY);
-		if (fd < 0)
-			return -1;
-		write(fd, "mem", 3);
-		close(fd);
-		SDL_Delay(100); // let input subsystem settle before checking wake event
-	}
+	int fd = open(state_path, O_WRONLY);
+	if (fd < 0)
+		return -1;
+	write(fd, "mem", 3);
+	close(fd);
 	return 0;
 }
 
