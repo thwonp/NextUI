@@ -37,19 +37,22 @@ SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../../$(PLATFORM)/platfor
 
 CFLAGS  += $(OPT)
 CFLAGS  += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
-LDFLAGS += -s -lsqlite3
+LDFLAGS += -s
 
 PRODUCT= build/$(PLATFORM)/lib$(TARGET).so
 
-build: 
+build: sqlite3.o
 	mkdir -p build/$(PLATFORM)
 	$(CC) -c -Werror -fpic $(SOURCE) -Wl,--no-as-needed $(LDFLAGS) $(CFLAGS)
-	$(CC) -shared -o $(PRODUCT) "$(TARGET).o" "utils.o" $(LDFLAGS)
+	$(CC) -shared -o $(PRODUCT) "$(TARGET).o" "utils.o" sqlite3.o $(LDFLAGS)
 	cp "$(TARGET).h" "$(PREFIX_LOCAL)/include"
 	cp $(PRODUCT) "$(PREFIX_LOCAL)/lib"
 
+sqlite3.o: sqlite3.c
+	$(CC) -c -fpic -fvisibility=hidden -DSQLITE_THREADSAFE=0 sqlite3.c -o sqlite3.o
+
 clean:
-	rm -f *.o
+	rm -f *.o sqlite3.o
 	rm -f $(PRODUCT)
 	rm -f $(PREFIX_LOCAL)/include/$(TARGET).h
 	rm -f $(PREFIX_LOCAL)/lib/lib$(TARGET).so
