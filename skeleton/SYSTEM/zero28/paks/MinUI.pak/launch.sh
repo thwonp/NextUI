@@ -53,7 +53,7 @@ export PATH=$SYSTEM_PATH/bin:/usr/bin:$PATH
 
 echo userspace > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 export CPU_PATH=/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed
-CPU_SPEED_PERF=1200000
+CPU_SPEED_PERF=1800000
 echo $CPU_SPEED_PERF > $CPU_PATH
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
