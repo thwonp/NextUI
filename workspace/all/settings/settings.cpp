@@ -206,7 +206,8 @@ namespace {
             UnknownPlatform,
             tg5040,
             tg5050,
-            my355
+            my355,
+            zero28
         };
 
         DeviceInfo() {
@@ -228,6 +229,8 @@ namespace {
                     m_vendor = Trimui;
                     m_model = Flip;
                     m_platform = my355;
+                } else if(exactMatch("zero28", device)) {
+                    m_platform = zero28;
                 }
             }
         }
@@ -261,7 +264,7 @@ namespace {
         }
 
         bool hasWifi() const {
-            return m_platform == tg5050 || m_platform == tg5040 || m_platform == my355;
+            return m_platform == tg5050 || m_platform == tg5040 || m_platform == my355 || m_platform == zero28;
         }
 
         bool hasBluetooth() const {
