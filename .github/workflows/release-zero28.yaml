@@ -107,9 +107,8 @@ jobs:
         run: |
           make system PLATFORM=zero28
 
-      - name: Copy cores to system
-        run: |
-          find workspace/zero28/cores/output -name '*.so' -exec cp {} build/SYSTEM/zero28/cores/ \;
+      - name: Assemble cores
+        run: make cores PLATFORM=zero28
 
       - name: Patch ELF — remove problematic NEEDED entries
         run: |
@@ -122,13 +121,14 @@ jobs:
 
       - name: Package — MinUI.zip (update payload)
         run: |
-          mkdir -p build/zero28-payload/.system build/zero28-payload/Tools
+          mkdir -p build/zero28-payload/.system build/zero28-payload/Tools build/zero28-payload/Emus
           cp -R build/SYSTEM/zero28 build/zero28-payload/.system/
           cp -R build/SYSTEM/res   build/zero28-payload/.system/ 2>/dev/null || true
           cp    build/SYSTEM/version.txt build/zero28-payload/.system/
           cp -R build/EXTRAS/Tools/zero28 build/zero28-payload/Tools/
+          cp -R build/EXTRAS/Emus/zero28 build/zero28-payload/Emus/
           cd build/zero28-payload
-          zip -r ../../build/MinUI.zip .system Tools
+          zip -r ../../build/MinUI.zip .system Tools Emus
           cd -
 
       - name: Package — release zip (SD card root layout)
