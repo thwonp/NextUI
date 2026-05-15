@@ -213,8 +213,6 @@ int currentshaderdsth = 0;
 int currentshadertexw = 0;
 int currentshadertexh = 0;
 
-int should_rotate = 0;
-
 static pthread_mutex_t perf_cpu_monitor_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int perf_cpu_monitor_enabled = 0;
 static int perf_cpu_monitor_running = 0;
@@ -257,6 +255,7 @@ void Perf_endCPUMonitor(void)
     perf_cpu_monitor_running = 0;
     pthread_mutex_unlock(&perf_cpu_monitor_mutex);
 }
+
 
 FALLBACK_IMPLEMENTATION void PLAT_pinToCores(int core_type)
 {
