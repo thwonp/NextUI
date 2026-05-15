@@ -213,8 +213,6 @@ int currentshaderdsth = 0;
 int currentshadertexw = 0;
 int currentshadertexh = 0;
 
-int should_rotate = 0;
-
 FALLBACK_IMPLEMENTATION void PLAT_pinToCores(int core_type)
 {
 	// no-op

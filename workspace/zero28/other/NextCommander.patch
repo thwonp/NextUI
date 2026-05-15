@@ -39,70 +39,24 @@ index d16a23d..c5308bc 100644
 +CXXFLAGS += -DSCREEN_BPP=32
 +CXXFLAGS += -DZERO28
  endif
- 
+
  SDL := SDL2
-diff --git a/src/screen.cpp b/src/screen.cpp
-index 43d31fa..ae47f9c 100644
---- a/src/screen.cpp
-+++ b/src/screen.cpp
-@@ -106,8 +106,22 @@ int Screen::init()
-         }
-     }
-     SDL_GetWindowSize(window, &window_w, &window_h);
-+#ifdef ZERO28
-+    // Physical panel is portrait (480×640). Swap so rendering uses landscape dims.
-+    { int tmp = window_w; window_w = window_h; window_h = tmp; }
-+#endif
-     setPhysicalResolution(window_w, window_h);
-+#ifdef ZERO28
-+    {
-+        SDL_Surface *win = SDL_GetWindowSurface(window);
-+        screen.surface = SDL_CreateRGBSurface(SDL_SWSURFACE, window_w, window_h,
-+            win->format->BitsPerPixel,
-+            win->format->Rmask, win->format->Gmask,
-+            win->format->Bmask, win->format->Amask);
-+    }
-+#else
-     screen.surface = SDL_GetWindowSurface(window);
-+#endif
- #else
-     surface = SetVideoMode(screen.actual_w, screen.actual_h, SCREEN_BPP,
-         SDL_SWSURFACE | SDL_RESIZABLE);
 diff --git a/src/screen.h b/src/screen.h
 index 5249165..cdd1031 100644
 --- a/src/screen.h
 +++ b/src/screen.h
-@@ -4,6 +4,7 @@
- #include <SDL.h>
- 
- #include "config.h"
-+#include "sdl_gfx/SDL2_rotozoom.h"
- #ifdef MIYOOMINI
- #include "gfx.h"
- #endif
-@@ -34,16 +35,27 @@ struct Screen
- 
+@@ -34,16 +34,16 @@ struct Screen
+
      void flip() {
  #ifdef USE_SDL2
 -		if (SDL_UpdateWindowSurface(window) <= -1) {
 -			SDL_Log("%s", SDL_GetError());
 -		}
 -		surface = SDL_GetWindowSurface(window);
-+#ifdef ZERO28
-+        // Rotate landscape (640×480) surface 90° CW to portrait (480×640) window.
-+        SDL_Surface *rotated = rotateSurface90Degrees(surface, 1);
-+        if (rotated) {
-+            SDL_BlitSurface(rotated, NULL, SDL_GetWindowSurface(window), NULL);
-+            SDL_FreeSurface(rotated);
-+        }
-+        SDL_UpdateWindowSurface(window);
-+        // Do NOT reassign screen.surface — keep the off-screen landscape buffer.
-+#else
 +        if (SDL_UpdateWindowSurface(window) <= -1) {
 +            SDL_Log("%s", SDL_GetError());
 +        }
 +        surface = SDL_GetWindowSurface(window);
-+#endif
  #else
  #ifdef MIYOOMINI
 -	GFX_Flip(surface);

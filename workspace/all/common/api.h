@@ -112,7 +112,6 @@ extern int currentshaderdstw;
 extern int currentshaderdsth;
 extern int currentshadertexw;
 extern int currentshadertexh;
-extern int should_rotate;
 extern volatile int useAutoCpu;
 
 enum {

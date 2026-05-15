@@ -39,14 +39,6 @@ static int finalScaleFilter=GL_LINEAR;
 static int reloadShaderTextures = 1;
 static int shaderResetRequested = 0;
 
-// Rotation redirect: when non-zero, runShaderPass binds this FBO instead of FBO 0.
-// Currently stays 0 (rotation is handled via MVPMatrix); kept as general infrastructure.
-static GLuint rotation_fbo_redirect = 0;
-
-// When non-zero, runShaderPass uploads a 90° CW rotation matrix to MVPMatrix
-// for final FBO 0 output passes. Set each frame in PLAT_GL_Swap.
-static int g_rotate_output = 0;
-
 static SDL_BlendMode getPremultipliedBlendMode(void) {
 	return SDL_ComposeCustomBlendMode(
 		SDL_BLENDFACTOR_ONE,
@@ -112,11 +104,8 @@ static struct VID_Context {
 	SDL_Texture* target;
 	SDL_Texture* effect;
 	SDL_Texture* overlay;
-	SDL_Texture* target_composite;  // rotation composite; NULL when !should_rotate
 	SDL_Surface* screen;
 	SDL_GLContext gl_context;
-	SDL_GLContext sdl_renderer_ctx;  // SDL's internal GL context (for rotation blit)
-	GLuint rotation_program;         // GLES shader program; 0 if unused
 
 	GFX_Renderer* blit; // yeesh
 	int width;
@@ -550,9 +539,6 @@ SDL_Surface* PLAT_initVideo(void) {
 	{
 		SDL_DisplayMode mode;
 		SDL_GetCurrentDisplayMode(0, &mode);
-		if (mode.h > mode.w) should_rotate = 1;
-		LOG_info("PLAT_initVideo: display mode %dx%d, should_rotate=%d\n", mode.w, mode.h, should_rotate);
-		sync();
 	}
 	SDL_ShowCursor(0);
 
@@ -599,8 +585,8 @@ SDL_Surface* PLAT_initVideo(void) {
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 #endif
 
-	int win_w = should_rotate ? h : w;
-	int win_h = should_rotate ? w : h;
+	int win_w = w;
+	int win_h = h;
 	vid.window   = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, win_w, win_h, SDL_WINDOW_OPENGL|SDL_WINDOW_SHOWN);
 	LOG_info("PLAT_initVideo: SDL_CreateWindow done\n");
 	sync();
@@ -643,45 +629,6 @@ SDL_Surface* PLAT_initVideo(void) {
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 	}
 
-	/* Save SDL's internal GL context so the rotation blit shader can be compiled in it */
-	vid.sdl_renderer_ctx = SDL_GL_GetCurrentContext();
-	vid.rotation_program = 0;
-
-	if (should_rotate) {
-		const char* vs_src =
-			"attribute vec2 a_pos;\n"
-			"attribute vec2 a_tex;\n"
-			"varying vec2 v_tex;\n"
-			"void main() {\n"
-			"    gl_Position = vec4(a_pos, 0.0, 1.0);\n"
-			"    v_tex = a_tex;\n"
-			"}\n";
-		const char* fs_src =
-			"precision mediump float;\n"
-			"varying vec2 v_tex;\n"
-			"uniform sampler2D u_tex;\n"
-			"void main() {\n"
-			"    gl_FragColor = texture2D(u_tex, v_tex);\n"
-			"}\n";
-
-		GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-		glShaderSource(vs, 1, &vs_src, NULL);
-		glCompileShader(vs);
-
-		GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-		glShaderSource(fs, 1, &fs_src, NULL);
-		glCompileShader(fs);
-
-		GLuint prog = glCreateProgram();
-		glAttachShader(prog, vs);
-		glAttachShader(prog, fs);
-		glLinkProgram(prog);
-		glDeleteShader(vs);
-		glDeleteShader(fs);
-		vid.rotation_program = prog;
-		LOG_info("PLAT_initVideo: rotation shader compiled, program=%u\n", prog);
-	}
-
 	vid.gl_context = SDL_GL_CreateContext(vid.window);
 	LOG_info("PLAT_initVideo: SDL_GL_CreateContext done, ctx=%p\n", (void*)vid.gl_context);
 	sync();
@@ -698,10 +645,6 @@ SDL_Surface* PLAT_initVideo(void) {
 	vid.target_layer5 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET , w,h);
 
 	vid.target	= NULL; // only needed for non-native sizes
-
-	vid.target_composite = should_rotate
-	    ? SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w, h)
-	    : NULL;
 
 	vid.screen = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
 
@@ -838,10 +781,8 @@ void PLAT_setShaders(int nr) {
 static void clearVideo(void) {
 	for (int i=0; i<3; i++) {
 		SDL_RenderClear(vid.renderer);
-		if (!should_rotate) {
-			SDL_FillRect(vid.screen, NULL, vid.clear_color);
-			SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
-		}
+		SDL_FillRect(vid.screen, NULL, vid.clear_color);
+		SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
 		SDL_RenderPresent(vid.renderer);
 	}
 }
@@ -852,19 +793,10 @@ void PLAT_quitVideo(void) {
 	// Make sure the GL context is current before tearing down textures/renderer
 	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
 
-	// Clean up rotation shader (must be done in SDL's GL context)
-	if (vid.rotation_program) {
-		SDL_GL_MakeCurrent(vid.window, vid.sdl_renderer_ctx);
-		glDeleteProgram(vid.rotation_program);
-		vid.rotation_program = 0;
-		SDL_GL_MakeCurrent(vid.window, vid.gl_context);
-	}
-
 	// Destroy textures while renderer is valid
 	if (vid.target) SDL_DestroyTexture(vid.target);
 	if (vid.effect) SDL_DestroyTexture(vid.effect);
 	if (vid.overlay) SDL_DestroyTexture(vid.overlay);
-	if (vid.target_composite) SDL_DestroyTexture(vid.target_composite);
 	if (vid.target_layer3) SDL_DestroyTexture(vid.target_layer3);
 	if (vid.target_layer1) SDL_DestroyTexture(vid.target_layer1);
 	if (vid.target_layer2) SDL_DestroyTexture(vid.target_layer2);
@@ -1427,42 +1359,14 @@ void PLAT_scrollTextTexture(
 
 // super fast without update_texture to draw screen
 void PLAT_GPU_Flip() {
-	if (should_rotate) {
-		static int gpu_flip_logged = 0;
-		if (!gpu_flip_logged) {
-			LOG_info("PLAT_GPU_Flip: rotation blit reached\n");
-			fflush(stdout);
-			sync();
-			gpu_flip_logged = 1;
-		}
-		SDL_SetRenderTarget(vid.renderer, vid.target_composite);
-		SDL_RenderClear(vid.renderer);
-		SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
-		SDL_SetRenderTarget(vid.renderer, NULL);
-		SDL_RenderClear(vid.renderer);
-		SDL_Rect dst = {
-		    (device_height - device_width) / 2,
-		    (device_width  - device_height) / 2,
-		    device_width,
-		    device_height
-		};
-		SDL_RenderCopyEx(vid.renderer, vid.target_composite, NULL, &dst, 90.0, NULL, SDL_FLIP_NONE);
-		SDL_RenderPresent(vid.renderer);
-	} else {
-		SDL_RenderClear(vid.renderer);
-		SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
-		SDL_RenderPresent(vid.renderer);
-	}
+	SDL_RenderClear(vid.renderer);
+	SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
+	SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
+	SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
+	SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
+	SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
+	SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
+	SDL_RenderPresent(vid.renderer);
 }
 
 void PLAT_animateSurfaceOpacity(
@@ -1524,42 +1428,6 @@ void PLAT_animateSurfaceOpacity(
 
 SDL_Surface* PLAT_captureRendererToSurface() {
 	if (!vid.renderer) return NULL;
-
-	if (should_rotate && vid.target_composite) {
-		int width = FIXED_WIDTH;
-		int height = FIXED_HEIGHT;
-
-		SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888);
-		if (!surface) {
-			LOG_error("Failed to create surface: %s\n", SDL_GetError());
-			return NULL;
-		}
-
-		Uint32 black = SDL_MapRGBA(surface->format, 0, 0, 0, 255);
-		SDL_FillRect(surface, NULL, black);
-
-		SDL_SetRenderTarget(vid.renderer, vid.target_composite);
-		int rc = SDL_RenderReadPixels(vid.renderer, NULL, SDL_PIXELFORMAT_ARGB8888, surface->pixels, surface->pitch);
-		SDL_SetRenderTarget(vid.renderer, NULL);
-
-		if (rc != 0) {
-			LOG_error("Failed to read pixels from composite: %s\n", SDL_GetError());
-			SDL_FreeSurface(surface);
-			return NULL;
-		}
-
-		// remove transparency (match existing behaviour)
-		Uint32* pixels = (Uint32*)surface->pixels;
-		int total_pixels = (surface->pitch / 4) * surface->h;
-		for (int i = 0; i < total_pixels; i++) {
-			Uint8 r, g, b, a;
-			SDL_GetRGBA(pixels[i], surface->format, &r, &g, &b, &a);
-			pixels[i] = SDL_MapRGBA(surface->format, r, g, b, 255);
-		}
-
-		SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_NONE);
-		return surface;
-	}
 
 	int width, height;
 	SDL_GetRendererOutputSize(vid.renderer, &width, &height);
@@ -1742,20 +1610,11 @@ void setRectToAspectRatio(SDL_Rect* dst_rect) {
         dst_rect->w = w;
         dst_rect->h = h;
     } else if (vid.blit->aspect > 0) {
-        if (should_rotate) {
-            h = device_width;
-            w = h * vid.blit->aspect;
-            if (w > device_height) {
-                w = device_height;
-                h = w / vid.blit->aspect;
-            }
-        } else {
-            h = device_height;
-            w = h * vid.blit->aspect;
-            if (w > device_width) {
-                w = device_width;
-                h = w / vid.blit->aspect;
-            }
+        h = device_height;
+        w = h * vid.blit->aspect;
+        if (w > device_width) {
+            w = device_width;
+            h = w / vid.blit->aspect;
         }
         dst_rect->x = (device_width - w) / 2 + screenx;
         dst_rect->y = (device_height - h) / 2 + screeny;
@@ -1764,8 +1623,8 @@ void setRectToAspectRatio(SDL_Rect* dst_rect) {
     } else {
         dst_rect->x = screenx;
         dst_rect->y = screeny;
-        dst_rect->w = should_rotate ? device_height : device_width;
-        dst_rect->h = should_rotate ? device_width : device_height;
+        dst_rect->w = device_width;
+        dst_rect->h = device_height;
     }
 }
 
@@ -1801,34 +1660,13 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	if (!vid.blit) {
         resizeVideo(device_width, device_height, FIXED_PITCH); // !!!???
         SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
-		if (should_rotate) {
-			SDL_SetRenderTarget(vid.renderer, vid.target_composite);
-			SDL_RenderClear(vid.renderer);
-			SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
-			SDL_SetRenderTarget(vid.renderer, NULL);
-			SDL_RenderClear(vid.renderer);
-			SDL_Rect dst = {
-			    (device_height - device_width) / 2,
-			    (device_width  - device_height) / 2,
-			    device_width,
-			    device_height
-			};
-			SDL_RenderCopyEx(vid.renderer, vid.target_composite, NULL, &dst, 90.0, NULL, SDL_FLIP_NONE);
-			SDL_RenderPresent(vid.renderer);
-		} else {
-			SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
-			SDL_RenderPresent(vid.renderer);
-		}
+		SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
+		SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
+		SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
+		SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
+		SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
+		SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
+		SDL_RenderPresent(vid.renderer);
         return;
     }
 
@@ -1838,34 +1676,13 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
         vid.blit = NULL;
         resizeVideo(device_width, device_height, FIXED_PITCH);
         SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
-		if (should_rotate) {
-			SDL_SetRenderTarget(vid.renderer, vid.target_composite);
-			SDL_RenderClear(vid.renderer);
-			SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
-			SDL_SetRenderTarget(vid.renderer, NULL);
-			SDL_RenderClear(vid.renderer);
-			SDL_Rect dst = {
-			    (device_height - device_width) / 2,
-			    (device_width  - device_height) / 2,
-			    device_width,
-			    device_height
-			};
-			SDL_RenderCopyEx(vid.renderer, vid.target_composite, NULL, &dst, 90.0, NULL, SDL_FLIP_NONE);
-			SDL_RenderPresent(vid.renderer);
-		} else {
-			SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
-			SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
-			SDL_RenderPresent(vid.renderer);
-		}
+		SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
+		SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
+		SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
+		SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
+		SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
+		SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
+		SDL_RenderPresent(vid.renderer);
         return;
     }
 
@@ -1893,24 +1710,8 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 
     setRectToAspectRatio(dst_rect);
 
-    if (should_rotate) {
-        SDL_SetRenderTarget(vid.renderer, vid.target_composite);
-        SDL_RenderClear(vid.renderer);
-        SDL_RenderCopy(vid.renderer, target, src_rect, dst_rect);
-        SDL_SetRenderTarget(vid.renderer, NULL);
-        SDL_RenderClear(vid.renderer);
-        SDL_Rect dst = {
-            (device_height - device_width) / 2,
-            (device_width  - device_height) / 2,
-            device_width,
-            device_height
-        };
-        SDL_RenderCopyEx(vid.renderer, vid.target_composite, NULL, &dst, 90.0, NULL, SDL_FLIP_NONE);
-        SDL_RenderPresent(vid.renderer);
-    } else {
-        SDL_RenderCopy(vid.renderer, target, src_rect, dst_rect);
-        SDL_RenderPresent(vid.renderer);
-    }
+    SDL_RenderCopy(vid.renderer, target, src_rect, dst_rect);
+    SDL_RenderPresent(vid.renderer);
 
     vid.blit = NULL;
 }
@@ -2007,22 +1808,13 @@ void runShaderPass(GLuint src_texture, GLuint shader_program, GLuint* target_tex
 
 		GLint u_MVP = glGetUniformLocation(shader_program, "MVPMatrix");
 		if (u_MVP >= 0) {
-			// 90° CW rotation (column-major). Flip signs on [1] and [4] for CCW if needed.
-			static const float rotate_cw_90[16] = {
-				 0.0f, -1.0f, 0.0f, 0.0f,
-				 1.0f,  0.0f, 0.0f, 0.0f,
-				 0.0f,  0.0f, 1.0f, 0.0f,
-				 0.0f,  0.0f, 0.0f, 1.0f,
-			};
 			static const float identity[16] = {
 				 1.0f, 0.0f, 0.0f, 0.0f,
 				 0.0f, 1.0f, 0.0f, 0.0f,
 				 0.0f, 0.0f, 1.0f, 0.0f,
 				 0.0f, 0.0f, 0.0f, 1.0f,
 			};
-			const float *mvp = (target_texture == NULL && g_rotate_output)
-				? rotate_cw_90 : identity;
-			glUniformMatrix4fv(u_MVP, 1, GL_FALSE, mvp);
+			glUniformMatrix4fv(u_MVP, 1, GL_FALSE, identity);
 		}
 	}
 	if (target_texture) {
@@ -2067,7 +1859,7 @@ void runShaderPass(GLuint src_texture, GLuint shader_program, GLuint* target_tex
         }
 
     } else {
-        glBindFramebuffer(GL_FRAMEBUFFER, rotation_fbo_redirect);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
 	if(alpha==1) {
@@ -2208,12 +2000,8 @@ void PLAT_GL_Swap() {
         if (notif.clear_frames > 0) notif.clear_frames--;
     }
 
-    // Suppress rotation flag during setRectToAspectRatio so dst_rect uses landscape dims.
-    int save_rotate = should_rotate;
-    should_rotate = 0;
     SDL_Rect dst_rect = {0, 0, device_width, device_height};
     setRectToAspectRatio(&dst_rect);
-    should_rotate = save_rotate;
 
     if (!vid.blit->src) {
         return;
@@ -2343,16 +2131,8 @@ void PLAT_GL_Swap() {
     last_w = vid.blit->src_w;
     last_h = vid.blit->src_h;
 
-    // 3c — Set rotation flag for MVPMatrix upload in runShaderPass.
-    g_rotate_output = should_rotate ? 1 : 0;
-
-    // When rotating, fill the full FBO 0 portrait surface (device_height x device_width = 480x640).
-    SDL_Rect rotated_rect = (should_rotate)
-        ? (SDL_Rect){0, 0, device_height, device_width}
-        : dst_rect;
-    SDL_Rect rotated_effect_rect = (should_rotate)
-        ? (SDL_Rect){0, 0, device_height, device_width}
-        : (SDL_Rect){dst_rect.x, dst_rect.y, effect_w, effect_h};
+    SDL_Rect rotated_rect = dst_rect;
+    SDL_Rect rotated_effect_rect = (SDL_Rect){dst_rect.x, dst_rect.y, effect_w, effect_h};
 
     for (int i = 0; i < nrofshaders; i++) {
         int src_w = last_w;
@@ -2532,48 +2312,6 @@ void PLAT_pixelFlipper(uint8_t* pixels, int width, int height) {
 unsigned char* PLAT_GL_screenCapture(int* outWidth, int* outHeight) {
     glViewport(0, 0, device_width, device_height);
 
-    if (should_rotate) {
-        // FBO 0 is portrait-sized (device_height x device_width = 480x640) due to
-        // the 90° CW MVPMatrix applied in runShaderPass (007ar). Read the full FBO.
-        int read_w = device_height; // 480
-        int read_h = device_width;  // 640
-
-        unsigned char* raw = malloc(read_w * read_h * 4);
-        if (!raw) return NULL;
-
-        glReadPixels(0, 0, read_w, read_h, GL_RGBA, GL_UNSIGNED_BYTE, raw);
-
-        // Rotate 90° CCW to undo the 90° CW MVPMatrix, producing a landscape buffer.
-        unsigned char* dst = malloc(device_width * device_height * 4);
-        if (!dst) {
-            free(raw);
-            return NULL;
-        }
-
-        // CCW rotation: dst pixel (x, y) comes from raw pixel (y, device_width-1-x)
-        // where raw is indexed as [row * read_w + col] and row = device_width-1-x, col = y.
-        for (int y = 0; y < device_height; y++) {
-            for (int x = 0; x < device_width; x++) {
-                memcpy(
-                    dst + (y * device_width + x) * 4,
-                    raw + ((device_width - 1 - x) * read_w + y) * 4,
-                    4
-                );
-            }
-        }
-
-        free(raw);
-
-        // Apply Y-flip so callers see the same convention as the unrotated path.
-        PLAT_pixelFlipper(dst, device_width, device_height);
-
-        if (outWidth)  *outWidth  = device_width;
-        if (outHeight) *outHeight = device_height;
-
-        return dst; // caller must free
-    }
-
-    // Unrotated path — behavior unchanged, glGetIntegerv round-trip removed.
     if (outWidth)  *outWidth  = device_width;
     if (outHeight) *outHeight = device_height;
 
