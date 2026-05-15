@@ -1,0 +1,194 @@
+---
+name: Release NextUI (zero28)
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Override tag (leave empty to auto-generate zero28-YYYYMMDD-N)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Compute tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            DATE=$(date -u +%Y%m%d)
+            N=$(( $(git tag -l "zero28-${DATE}-*" | wc -l) + 1 ))
+            TAG="zero28-${DATE}-${N}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+  core-matrix:
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      cores: ${{ steps.cores.outputs.cores }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Generate cores matrix
+        id: cores
+        run: |
+          CORES="$(make cores-json PLATFORM=zero28)"
+          echo "cores=${CORES}" >> "$GITHUB_OUTPUT"
+
+  build-core:
+    needs: core-matrix
+    runs-on: ubuntu-24.04-arm
+    env:
+      PLATFORM: zero28
+    strategy:
+      fail-fast: true
+      matrix:
+        core: ${{ fromJson(needs.core-matrix.outputs.cores) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup
+        run: make setup
+
+      - name: Build ${{ matrix.core }} core
+        run: |
+          make build-core -f makefile.toolchain PLATFORM=zero28 TOOLCHAIN_PLATFORM=tg5040 CORE=${{ matrix.core }}
+
+      - name: Upload core
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: core-zero28-${{ matrix.core }}
+          path: workspace/zero28/cores/output/
+
+  build:
+    needs:
+      - prepare
+      - build-core
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Install patchelf
+        run: |
+          sudo apt-get update && sudo apt-get install -y patchelf
+
+      - name: Setup
+        run: make setup
+
+      - name: Download all core artifacts
+        uses: actions/download-artifact@v4.3.0
+        with:
+          path: workspace/zero28/cores/output/
+          pattern: core-zero28-*
+          merge-multiple: true
+
+      - name: Build binaries
+        run: |
+          make build -f makefile.toolchain PLATFORM=zero28 TOOLCHAIN_PLATFORM=tg5040
+
+      - name: Assemble build tree
+        run: |
+          make system PLATFORM=zero28
+
+      - name: Copy cores to system
+        run: |
+          find workspace/zero28/cores/output -name '*.so' -exec cp {} build/SYSTEM/zero28/cores/ \;
+
+      - name: Patch ELF — remove problematic NEEDED entries
+        run: |
+          patchelf --remove-needed libGLESv2.so.2 build/SYSTEM/zero28/bin/nextui.elf
+          patchelf --remove-needed libUMP.so.3    build/SYSTEM/zero28/bin/nextui.elf
+
+      - name: Write version
+        run: |
+          echo "${{ needs.prepare.outputs.tag }}" > build/SYSTEM/version.txt
+
+      - name: Package — MinUI.zip (update payload)
+        run: |
+          mkdir -p build/zero28-payload/.system build/zero28-payload/Tools
+          cp -R build/SYSTEM/zero28 build/zero28-payload/.system/
+          cp -R build/SYSTEM/res   build/zero28-payload/.system/ 2>/dev/null || true
+          cp    build/SYSTEM/version.txt build/zero28-payload/.system/
+          cp -R build/EXTRAS/Tools/zero28 build/zero28-payload/Tools/
+          cd build/zero28-payload
+          zip -r ../../build/MinUI.zip .system Tools
+          cd -
+
+      - name: Package — release zip (SD card root layout)
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          mkdir -p build/zero28-release/magicx/zero28
+          cp  build/BOOT/common/zero28.sh         build/zero28-release/magicx/init.sh
+          chmod +x build/zero28-release/magicx/init.sh
+          cp  build/BOOT/common/zero28/show2.elf  build/zero28-release/magicx/zero28/
+          cp  build/BOOT/common/zero28/unzip       build/zero28-release/magicx/zero28/
+          find build/BOOT/common/zero28 -name '*.png' \
+            -exec cp {} build/zero28-release/magicx/zero28/ \;
+          cp build/MinUI.zip build/zero28-release/
+          mkdir -p releases
+          cd build/zero28-release
+          zip -r "../../releases/${TAG}.zip" .
+          cd -
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ needs.prepare.outputs.tag }}
+          path: releases/
+
+  release:
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Download release artifact
+        uses: actions/download-artifact@v4.3.0
+        with:
+          path: releases/
+          pattern: ${{ needs.prepare.outputs.tag }}
+          merge-multiple: true
+
+      - name: Create and push tag
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+          git tag "${{ needs.prepare.outputs.tag }}"
+          git push origin "${{ needs.prepare.outputs.tag }}"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: ${{ needs.prepare.outputs.tag }}
+          files: releases/${{ needs.prepare.outputs.tag }}.zip
+          generate_release_notes: true
+          body: |
+            NextUI for MagicX Zero28 — requires Moss firmware on the other SD card.
+
+            ## Installation
+            1. Extract this zip to the root of a FAT32 SD card.
+            2. Insert into the device and boot.
+            3. Moss will detect `magicx/init.sh`, extract `MinUI.zip`, and launch NextUI.
