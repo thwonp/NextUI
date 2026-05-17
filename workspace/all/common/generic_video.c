@@ -634,6 +634,12 @@ SDL_Surface* PLAT_initVideo(void) {
 	sync();
 	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
 	glViewport(0, 0, w, h);
+	{
+		int dw = 0, dh = 0;
+		SDL_GL_GetDrawableSize(vid.window, &dw, &dh);
+		LOG_info("SDL_GL_GetDrawableSize: %dx%d\n", dw, dh);
+		sync();
+	}
 	LOG_info("PLAT_initVideo: glViewport done\n");
 	sync();
 
