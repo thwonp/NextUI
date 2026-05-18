@@ -125,7 +125,7 @@ sleep 3
 } >> "$LOGS_PATH/launch_diag.txt" 2>&1
 sync
 
-export LD_PRELOAD=$SYSTEM_PATH/lib/libsdl2_shim.so
+# export LD_PRELOAD=$SYSTEM_PATH/lib/libsdl2_shim.so  # de2-sweep: shim disabled for G2D test
 EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH"  && sync
