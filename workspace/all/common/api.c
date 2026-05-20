@@ -3012,6 +3012,10 @@ void PAD_reset(void)
 	pad.just_released = BTN_NONE;
 	pad.just_repeated = BTN_NONE;
 }
+FALLBACK_IMPLEMENTATION void PLAT_configureGL(void) {
+    /* no-op default; platforms override to set SDL_GL_SetAttribute / SDL hints
+       that must be applied before SDL_CreateWindow */
+}
 FALLBACK_IMPLEMENTATION void PLAT_pollInput(void)
 {
 	// reset transient state

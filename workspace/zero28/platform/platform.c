@@ -475,6 +475,10 @@ void PLAT_setCurrentTimezone(const char* tz) {
 
 /////////////////////////
 
+void PLAT_configureGL(void) {
+	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 0);
+}
+
 // We use the generic video implementation here
 #include "generic_video.c"
 
