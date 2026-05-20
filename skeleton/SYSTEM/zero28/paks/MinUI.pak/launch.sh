@@ -50,6 +50,7 @@ sync
 
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:/usr/lib:$LD_LIBRARY_PATH
 export PATH=$SYSTEM_PATH/bin:/usr/bin:$PATH
+export LD_PRELOAD="$SYSTEM_PATH/lib/libegldrain.so${LD_PRELOAD:+:$LD_PRELOAD}"
 
 echo userspace > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 export CPU_PATH=/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed
