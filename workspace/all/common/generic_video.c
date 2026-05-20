@@ -520,6 +520,7 @@ void PLAT_resetShaders() {
 
 SDL_Surface* PLAT_initVideo(void) {
 	LOG_info("PLAT_initVideo: entering\n");
+	gfx_flush_state_reset(); /* clear EGL flush counter on every video init */
 	sync();
 
 #if NEXTUI_TSAN
@@ -584,8 +585,6 @@ SDL_Surface* PLAT_initVideo(void) {
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 #endif
-
-	PLAT_configureGL();
 
 	int win_w = w;
 	int win_h = h;
