@@ -634,12 +634,6 @@ SDL_Surface* PLAT_initVideo(void) {
 	sync();
 	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
 	glViewport(0, 0, w, h);
-	{
-		int dw = 0, dh = 0;
-		SDL_GL_GetDrawableSize(vid.window, &dw, &dh);
-		LOG_info("SDL_GL_GetDrawableSize: %dx%d\n", dw, dh);
-		sync();
-	}
 	LOG_info("PLAT_initVideo: glViewport done\n");
 	sync();
 
@@ -2137,8 +2131,7 @@ void PLAT_GL_Swap() {
     last_w = vid.blit->src_w;
     last_h = vid.blit->src_h;
 
-    SDL_Rect rotated_rect = dst_rect;
-    SDL_Rect rotated_effect_rect = (SDL_Rect){dst_rect.x, dst_rect.y, effect_w, effect_h};
+    SDL_Rect effect_rect = (SDL_Rect){dst_rect.x, dst_rect.y, effect_w, effect_h};
 
     for (int i = 0; i < nrofshaders; i++) {
         int src_w = last_w;
@@ -2213,7 +2206,7 @@ void PLAT_GL_Swap() {
             shaders[nrofshaders - 1]->texture,
             g_shader_default,
             NULL,
-            rotated_rect.x, rotated_rect.y, rotated_rect.w, rotated_rect.h,
+            dst_rect.x, dst_rect.y, dst_rect.w, dst_rect.h,
             &(Shader){.srcw = last_w, .srch = last_h, .texw = last_w, .texh = last_h},
             0, GL_NONE
         );
@@ -2223,7 +2216,7 @@ void PLAT_GL_Swap() {
         runShaderPass(src_texture,
 			g_shader_default,
 			NULL,
-			rotated_rect.x, rotated_rect.y, rotated_rect.w, rotated_rect.h,
+			dst_rect.x, dst_rect.y, dst_rect.w, dst_rect.h,
             &(Shader){.srcw = vid.blit->src_w, .srch = vid.blit->src_h, .texw = vid.blit->src_w, .texh = vid.blit->src_h},
             0, GL_NONE);
     }
@@ -2234,7 +2227,7 @@ void PLAT_GL_Swap() {
             effect_tex,
             g_shader_overlay,
             NULL,
-            rotated_effect_rect.x, rotated_effect_rect.y, rotated_effect_rect.w, rotated_effect_rect.h,
+            effect_rect.x, effect_rect.y, effect_rect.w, effect_rect.h,
             &(Shader){.srcw = effect_w, .srch = effect_h, .texw = effect_w, .texh = effect_h},
             1, GL_NONE
         );
@@ -2246,7 +2239,7 @@ void PLAT_GL_Swap() {
             overlay_tex,
             g_shader_overlay,
             NULL,
-            rotated_rect.x, rotated_rect.y, rotated_rect.w, rotated_rect.h,
+            dst_rect.x, dst_rect.y, dst_rect.w, dst_rect.h,
             &(Shader){.srcw = vid.blit->src_w, .srch = vid.blit->src_h, .texw = overlay_w, .texh = overlay_h},
             1, GL_NONE
         );
