@@ -602,6 +602,7 @@ void PLAT_quitInput(void);
 void PLAT_pollInput(void);
 int PLAT_shouldWake(void);
 
+void PLAT_configureGL(void);
 SDL_Surface* PLAT_initVideo(void);
 void PLAT_quitVideo(void);
 void PLAT_clearVideo(SDL_Surface* screen);
