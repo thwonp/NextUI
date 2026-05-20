@@ -777,6 +777,8 @@ SDL_Surface* PLAT_initVideo(void) {
 #define EGL_NATIVE_RENDERABLE_  0x302D
 #define EGL_RENDER_BUFFER_      0x3086
 #define EGL_SWAP_BEHAVIOR_      0x3093
+#define EGL_BUFFER_PRESERVED_   0x3094
+#define EGL_BUFFER_DESTROYED_   0x3095
 #define EGL_WIDTH_              0x3057
 #define EGL_HEIGHT_             0x3056
 #define EGL_MULTISAMPLE_RESOLVE_ 0x3099
@@ -816,6 +818,8 @@ SDL_Surface* PLAT_initVideo(void) {
 		/* eglGetConfigs: needed to convert config-id -> EGLConfig handle */
 		EGLBoolean_t (*p_eglGetConfigs)(EGLDisplay_t, EGLConfig_t *, EGLint_t, EGLint_t *) = egl_handle ? dlsym(egl_handle, "eglGetConfigs") : NULL;
 		EGLint_t     (*p_eglGetError)(void)                    = egl_handle ? dlsym(egl_handle, "eglGetError") : NULL;
+		EGLBoolean_t (*p_eglSurfaceAttrib)(EGLDisplay_t, EGLSurface_t, EGLint_t, EGLint_t)
+		                                                       = egl_handle ? dlsym(egl_handle, "eglSurfaceAttrib") : NULL;
 
 		LOG_info("===== EGL CONFIG =====\n");
 
@@ -951,6 +955,31 @@ surface_attribs:;
 #undef LOG_SFC
 
 		LOG_info("===== /EGL CONFIG =====\n");
+
+		LOG_info("===== PRESERVED PROBE =====\n");
+		if (!p_eglSurfaceAttrib) {
+			LOG_info("  EGL dlsym FAILED: eglSurfaceAttrib (skipping probe)\n");
+		} else if (!dpy || !sfc) {
+			LOG_info("  no current display/surface; skipping probe\n");
+		} else {
+			EGLBoolean_t setrc = p_eglSurfaceAttrib(dpy, sfc, EGL_SWAP_BEHAVIOR_, EGL_BUFFER_PRESERVED_);
+			EGLint_t set_err = (setrc == EGL_TRUE_) ? 0 : p_eglGetError();
+			EGLint_t cur = 0;
+			EGLBoolean_t qrc = p_eglQuerySurface(dpy, sfc, EGL_SWAP_BEHAVIOR_, &cur);
+			EGLint_t q_err = (qrc == EGL_TRUE_) ? 0 : p_eglGetError();
+			LOG_info("  set EGL_SWAP_BEHAVIOR=EGL_BUFFER_PRESERVED(0x3094): rc=%d err=0x%x\n",
+			         (int)setrc, (unsigned)set_err);
+			LOG_info("  query EGL_SWAP_BEHAVIOR (post-set): rc=%d val=0x%x err=0x%x\n",
+			         (int)qrc, (unsigned)cur, (unsigned)q_err);
+			if (cur == EGL_BUFFER_PRESERVED_)
+				LOG_info("  result: DRIVER HONORED PRESERVED\n");
+			else if (cur == EGL_BUFFER_DESTROYED_)
+				LOG_info("  result: DRIVER REJECTED PRESERVED (still BUFFER_DESTROYED)\n");
+			else
+				LOG_info("  result: UNEXPECTED VALUE 0x%x\n", (unsigned)cur);
+		}
+		LOG_info("===== /PRESERVED PROBE =====\n");
+		sync();
 egl_dump_done:;
 		/* clean up local macro namespace */
 #undef EGL_TRUE_
@@ -970,6 +999,8 @@ egl_dump_done:;
 #undef EGL_NATIVE_RENDERABLE_
 #undef EGL_RENDER_BUFFER_
 #undef EGL_SWAP_BEHAVIOR_
+#undef EGL_BUFFER_PRESERVED_
+#undef EGL_BUFFER_DESTROYED_
 #undef EGL_WIDTH_
 #undef EGL_HEIGHT_
 #undef EGL_MULTISAMPLE_RESOLVE_
