@@ -739,6 +739,222 @@ SDL_Surface* PLAT_initVideo(void) {
 	LOG_info("PLAT_initVideo: glViewport done\n");
 	sync();
 
+	/* ---- TEMPORARY DIAGNOSTIC: removed in task 004 ---- */
+#ifdef PLATFORM_zero28
+	/*
+	 * Dump EGL display/surface/config attributes so we can determine the
+	 * PowerVR driver's buffer queue depth and available swap extensions.
+	 * All EGL symbols are resolved via dlsym because libEGL is loaded
+	 * dynamically by SDL2 (NEEDED stripped post-link; direct linkage breaks
+	 * SDL init). Uses RTLD_DEFAULT so we pick up the already-loaded library.
+	 */
+	{
+		/* --- EGL type aliases (avoid pulling in EGL headers) --- */
+		typedef void   *EGLDisplay_t;
+		typedef void   *EGLSurface_t;
+		typedef void   *EGLContext_t;
+		typedef void   *EGLConfig_t;
+		typedef int     EGLint_t;
+		typedef unsigned int EGLBoolean_t;
+#define EGL_TRUE_  1
+#define EGL_DRAW_  0x3059
+		/* EGL_CONFIG_ID and surface/config attribs */
+#define EGL_CONFIG_ID_          0x3028
+#define EGL_BUFFER_SIZE_        0x3020
+#define EGL_RED_SIZE_           0x3024
+#define EGL_GREEN_SIZE_         0x3023
+#define EGL_BLUE_SIZE_          0x3022
+#define EGL_ALPHA_SIZE_         0x3021
+#define EGL_DEPTH_SIZE_         0x3025
+#define EGL_STENCIL_SIZE_       0x3026
+#define EGL_SAMPLES_            0x3031
+#define EGL_SURFACE_TYPE_       0x3033
+#define EGL_RENDERABLE_TYPE_    0x3040
+#define EGL_CONFIG_CAVEAT_      0x3027
+#define EGL_NATIVE_RENDERABLE_  0x302D
+#define EGL_RENDER_BUFFER_      0x3086
+#define EGL_SWAP_BEHAVIOR_      0x3093
+#define EGL_WIDTH_              0x3057
+#define EGL_HEIGHT_             0x3056
+#define EGL_MULTISAMPLE_RESOLVE_ 0x3099
+		/* eglQueryString names */
+#define EGL_VERSION_STR_     0x3054
+#define EGL_VENDOR_STR_      0x3053
+#define EGL_CLIENT_APIS_STR_ 0x308D
+#define EGL_EXTENSIONS_STR_  0x3055
+
+		/* --- resolve function pointers --- */
+		EGLDisplay_t (*p_eglGetCurrentDisplay)(void)           = dlsym(RTLD_DEFAULT, "eglGetCurrentDisplay");
+		EGLSurface_t (*p_eglGetCurrentSurface)(EGLint_t)       = dlsym(RTLD_DEFAULT, "eglGetCurrentSurface");
+		EGLContext_t (*p_eglGetCurrentContext)(void)            = dlsym(RTLD_DEFAULT, "eglGetCurrentContext");
+		const char * (*p_eglQueryString)(EGLDisplay_t, EGLint_t) = dlsym(RTLD_DEFAULT, "eglQueryString");
+		EGLBoolean_t (*p_eglQueryContext)(EGLDisplay_t, EGLContext_t, EGLint_t, EGLint_t *) = dlsym(RTLD_DEFAULT, "eglQueryContext");
+		EGLBoolean_t (*p_eglQuerySurface)(EGLDisplay_t, EGLSurface_t, EGLint_t, EGLint_t *) = dlsym(RTLD_DEFAULT, "eglQuerySurface");
+		EGLBoolean_t (*p_eglGetConfigAttrib)(EGLDisplay_t, EGLConfig_t, EGLint_t, EGLint_t *) = dlsym(RTLD_DEFAULT, "eglGetConfigAttrib");
+		/* eglGetConfigs: needed to convert config-id -> EGLConfig handle */
+		EGLBoolean_t (*p_eglGetConfigs)(EGLDisplay_t, EGLConfig_t *, EGLint_t, EGLint_t *) = dlsym(RTLD_DEFAULT, "eglGetConfigs");
+		EGLint_t     (*p_eglGetError)(void)                    = dlsym(RTLD_DEFAULT, "eglGetError");
+
+		LOG_info("===== EGL CONFIG =====\n");
+
+		/* Verify all symbols resolved */
+		int egl_ok = 1;
+		if (!p_eglGetCurrentDisplay)   { LOG_info("  EGL dlsym FAILED: eglGetCurrentDisplay\n");   egl_ok = 0; }
+		if (!p_eglGetCurrentSurface)   { LOG_info("  EGL dlsym FAILED: eglGetCurrentSurface\n");   egl_ok = 0; }
+		if (!p_eglGetCurrentContext)   { LOG_info("  EGL dlsym FAILED: eglGetCurrentContext\n");    egl_ok = 0; }
+		if (!p_eglQueryString)         { LOG_info("  EGL dlsym FAILED: eglQueryString\n");          egl_ok = 0; }
+		if (!p_eglQueryContext)        { LOG_info("  EGL dlsym FAILED: eglQueryContext\n");          egl_ok = 0; }
+		if (!p_eglQuerySurface)        { LOG_info("  EGL dlsym FAILED: eglQuerySurface\n");         egl_ok = 0; }
+		if (!p_eglGetConfigAttrib)     { LOG_info("  EGL dlsym FAILED: eglGetConfigAttrib\n");      egl_ok = 0; }
+		if (!p_eglGetConfigs)          { LOG_info("  EGL dlsym FAILED: eglGetConfigs\n");           egl_ok = 0; }
+		if (!p_eglGetError)            { LOG_info("  EGL dlsym FAILED: eglGetError\n");             egl_ok = 0; }
+
+		if (!egl_ok) {
+			LOG_info("  One or more EGL symbols not found; skipping EGL dump\n");
+			LOG_info("===== /EGL CONFIG =====\n");
+			goto egl_dump_done;
+		}
+
+		EGLDisplay_t dpy = p_eglGetCurrentDisplay();
+		EGLSurface_t sfc = p_eglGetCurrentSurface(EGL_DRAW_);
+		EGLContext_t ctx = p_eglGetCurrentContext();
+
+		if (!dpy || !sfc || !ctx) {
+			LOG_info("  EGL context not current: dpy=%p sfc=%p ctx=%p\n",
+			         dpy, sfc, ctx);
+			LOG_info("===== /EGL CONFIG =====\n");
+			goto egl_dump_done;
+		}
+
+		/* --- EGL string attributes --- */
+		const char *egl_version = p_eglQueryString(dpy, EGL_VERSION_STR_);
+		const char *egl_vendor  = p_eglQueryString(dpy, EGL_VENDOR_STR_);
+		const char *egl_apis    = p_eglQueryString(dpy, EGL_CLIENT_APIS_STR_);
+		const char *egl_exts    = p_eglQueryString(dpy, EGL_EXTENSIONS_STR_);
+		LOG_info("  EGL_VERSION:     %s\n", egl_version  ? egl_version  : "(null)");
+		LOG_info("  EGL_VENDOR:      %s\n", egl_vendor   ? egl_vendor   : "(null)");
+		LOG_info("  EGL_CLIENT_APIS: %s\n", egl_apis     ? egl_apis     : "(null)");
+		/* extensions can be long; print in one shot */
+		LOG_info("  EGL_EXTENSIONS:  %s\n", egl_exts     ? egl_exts     : "(null)");
+
+		/* --- Extension presence check --- */
+#define EGL_HAS_EXT(name) ((egl_exts && strstr(egl_exts, (name))) ? "yes" : "no")
+		LOG_info("  ext EGL_KHR_swap_buffers_with_damage:    %s\n", EGL_HAS_EXT("EGL_KHR_swap_buffers_with_damage"));
+		LOG_info("  ext EGL_EXT_swap_buffers_with_damage:    %s\n", EGL_HAS_EXT("EGL_EXT_swap_buffers_with_damage"));
+		LOG_info("  ext EGL_ANDROID_front_buffer_auto_refresh: %s\n", EGL_HAS_EXT("EGL_ANDROID_front_buffer_auto_refresh"));
+		LOG_info("  ext EGL_NV_post_sub_buffer:              %s\n", EGL_HAS_EXT("EGL_NV_post_sub_buffer"));
+		LOG_info("  ext EGL_IMG_context_priority:            %s\n", EGL_HAS_EXT("EGL_IMG_context_priority"));
+		LOG_info("  ext EGL_KHR_partial_update:              %s\n", EGL_HAS_EXT("EGL_KHR_partial_update"));
+#undef EGL_HAS_EXT
+
+		/* --- Resolve the EGLConfig handle from the current context's config-id --- */
+		EGLint_t config_id = 0;
+		if (p_eglQueryContext(dpy, ctx, EGL_CONFIG_ID_, &config_id) != EGL_TRUE_) {
+			LOG_info("  eglQueryContext(EGL_CONFIG_ID) failed: 0x%x\n", p_eglGetError());
+			goto surface_attribs;
+		}
+		LOG_info("  EGL_CONFIG_ID: %d\n", config_id);
+
+		/* Walk the config list to find the matching handle */
+		EGLint_t num_configs = 0;
+		p_eglGetConfigs(dpy, NULL, 0, &num_configs);
+		EGLConfig_t egl_cfg = NULL;
+		if (num_configs > 0) {
+			EGLConfig_t *cfgs = malloc((size_t)num_configs * sizeof(EGLConfig_t));
+			if (cfgs) {
+				EGLint_t got = 0;
+				p_eglGetConfigs(dpy, cfgs, num_configs, &got);
+				for (EGLint_t ci = 0; ci < got; ci++) {
+					EGLint_t cid = 0;
+					if (p_eglGetConfigAttrib(dpy, cfgs[ci], EGL_CONFIG_ID_, &cid) == EGL_TRUE_
+					    && cid == config_id) {
+						egl_cfg = cfgs[ci];
+						break;
+					}
+				}
+				free(cfgs);
+			}
+		}
+
+		if (!egl_cfg) {
+			LOG_info("  Could not find EGLConfig handle for config_id=%d\n", config_id);
+			goto surface_attribs;
+		}
+
+		/* Helper macro: query one config attrib and log name + value (or error) */
+#define LOG_CFG(attr_name, attr_val) \
+		do { \
+			EGLint_t _v = 0; \
+			if (p_eglGetConfigAttrib(dpy, egl_cfg, (attr_val), &_v) == EGL_TRUE_) \
+				LOG_info("  cfg %-30s = %d (0x%x)\n", (attr_name), _v, (unsigned)_v); \
+			else \
+				LOG_info("  cfg %-30s ERROR 0x%x\n", (attr_name), p_eglGetError()); \
+		} while (0)
+
+		LOG_CFG("EGL_BUFFER_SIZE",    EGL_BUFFER_SIZE_);
+		LOG_CFG("EGL_RED_SIZE",       EGL_RED_SIZE_);
+		LOG_CFG("EGL_GREEN_SIZE",     EGL_GREEN_SIZE_);
+		LOG_CFG("EGL_BLUE_SIZE",      EGL_BLUE_SIZE_);
+		LOG_CFG("EGL_ALPHA_SIZE",     EGL_ALPHA_SIZE_);
+		LOG_CFG("EGL_DEPTH_SIZE",     EGL_DEPTH_SIZE_);
+		LOG_CFG("EGL_STENCIL_SIZE",   EGL_STENCIL_SIZE_);
+		LOG_CFG("EGL_SAMPLES",        EGL_SAMPLES_);
+		LOG_CFG("EGL_SURFACE_TYPE",   EGL_SURFACE_TYPE_);
+		LOG_CFG("EGL_RENDERABLE_TYPE",EGL_RENDERABLE_TYPE_);
+		LOG_CFG("EGL_CONFIG_CAVEAT",  EGL_CONFIG_CAVEAT_);
+		LOG_CFG("EGL_NATIVE_RENDERABLE", EGL_NATIVE_RENDERABLE_);
+#undef LOG_CFG
+
+		/* --- Surface attributes --- */
+surface_attribs:;
+		/* Helper macro: query one surface attrib and log name + value (or error) */
+#define LOG_SFC(attr_name, attr_val) \
+		do { \
+			EGLint_t _v = 0; \
+			if (p_eglQuerySurface(dpy, sfc, (attr_val), &_v) == EGL_TRUE_) \
+				LOG_info("  sfc %-30s = %d (0x%x)\n", (attr_name), _v, (unsigned)_v); \
+			else \
+				LOG_info("  sfc %-30s ERROR 0x%x\n", (attr_name), p_eglGetError()); \
+		} while (0)
+
+		LOG_SFC("EGL_RENDER_BUFFER",       EGL_RENDER_BUFFER_);
+		LOG_SFC("EGL_SWAP_BEHAVIOR",        EGL_SWAP_BEHAVIOR_);
+		LOG_SFC("EGL_WIDTH",                EGL_WIDTH_);
+		LOG_SFC("EGL_HEIGHT",               EGL_HEIGHT_);
+		LOG_SFC("EGL_MULTISAMPLE_RESOLVE",  EGL_MULTISAMPLE_RESOLVE_);
+#undef LOG_SFC
+
+		LOG_info("===== /EGL CONFIG =====\n");
+egl_dump_done:;
+		/* clean up local macro namespace */
+#undef EGL_TRUE_
+#undef EGL_DRAW_
+#undef EGL_CONFIG_ID_
+#undef EGL_BUFFER_SIZE_
+#undef EGL_RED_SIZE_
+#undef EGL_GREEN_SIZE_
+#undef EGL_BLUE_SIZE_
+#undef EGL_ALPHA_SIZE_
+#undef EGL_DEPTH_SIZE_
+#undef EGL_STENCIL_SIZE_
+#undef EGL_SAMPLES_
+#undef EGL_SURFACE_TYPE_
+#undef EGL_RENDERABLE_TYPE_
+#undef EGL_CONFIG_CAVEAT_
+#undef EGL_NATIVE_RENDERABLE_
+#undef EGL_RENDER_BUFFER_
+#undef EGL_SWAP_BEHAVIOR_
+#undef EGL_WIDTH_
+#undef EGL_HEIGHT_
+#undef EGL_MULTISAMPLE_RESOLVE_
+#undef EGL_VERSION_STR_
+#undef EGL_VENDOR_STR_
+#undef EGL_CLIENT_APIS_STR_
+#undef EGL_EXTENSIONS_STR_
+	}
+#endif /* PLATFORM_zero28 */
+	/* ---- END TEMPORARY DIAGNOSTIC ---- */
+
 	vid.stream_layer1 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w,h);
 	vid.target_layer1 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET , w,h);
 	vid.target_layer2 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET , w,h);
