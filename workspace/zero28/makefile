@@ -27,6 +27,7 @@ early: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILE
 	cd $(REQUIRES_UNZIP60) && make -f unix/Makefile.trimuismart unzip
 	cd bl && make
 	cd rfkill && make
+	cd eglshim && make
 
 clean:
 	cd $(REQUIRES_FILEMGR) && make clean

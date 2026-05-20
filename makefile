@@ -129,6 +129,7 @@ endif
 endif
 
 ifeq ($(PLATFORM), zero28)
+	cp ./workspace/$(PLATFORM)/eglshim/libegldrain.so ./build/SYSTEM/$(PLATFORM)/lib
 	# Audio resampling
 	cp ./workspace/all/minarch/build/$(PLATFORM)/libsamplerate.* ./build/SYSTEM/$(PLATFORM)/lib/
 	# ROM decompression and SRM support
