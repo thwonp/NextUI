@@ -746,7 +746,9 @@ SDL_Surface* PLAT_initVideo(void) {
 	 * PowerVR driver's buffer queue depth and available swap extensions.
 	 * All EGL symbols are resolved via dlsym because libEGL is loaded
 	 * dynamically by SDL2 (NEEDED stripped post-link; direct linkage breaks
-	 * SDL init). Uses RTLD_DEFAULT so we pick up the already-loaded library.
+	 * SDL init). SDL2 dlopen()s libEGL with RTLD_LOCAL, so RTLD_DEFAULT
+	 * cannot see its symbols; we acquire an explicit handle via dlopen()
+	 * with RTLD_NOLOAD (no second copy loaded) and resolve through that.
 	 */
 	{
 		/* --- EGL type aliases (avoid pulling in EGL headers) --- */
@@ -783,31 +785,54 @@ SDL_Surface* PLAT_initVideo(void) {
 #define EGL_CLIENT_APIS_STR_ 0x308D
 #define EGL_EXTENSIONS_STR_  0x3055
 
+		/* --- acquire a handle to the already-loaded libEGL ---
+		 * Try RTLD_NOLOAD first (returns handle without loading a second
+		 * copy); fall back to a plain RTLD_LAZY load as last resort.
+		 * Do not call dlerror() until all three attempts have failed. */
+		void *egl_handle = dlopen("libEGL.so.1", RTLD_LAZY | RTLD_NOLOAD);
+		if (egl_handle) {
+			LOG_info("  EGL handle via dlopen(\"libEGL.so.1\", NOLOAD)\n");
+		} else {
+			egl_handle = dlopen("libEGL.so", RTLD_LAZY | RTLD_NOLOAD);
+			if (egl_handle) {
+				LOG_info("  EGL handle via dlopen(\"libEGL.so\", NOLOAD)\n");
+			} else {
+				egl_handle = dlopen("libEGL.so.1", RTLD_LAZY);
+				if (egl_handle) {
+					LOG_info("  EGL handle via dlopen(\"libEGL.so.1\", RTLD_LAZY)\n");
+				}
+			}
+		}
+
 		/* --- resolve function pointers --- */
-		EGLDisplay_t (*p_eglGetCurrentDisplay)(void)           = dlsym(RTLD_DEFAULT, "eglGetCurrentDisplay");
-		EGLSurface_t (*p_eglGetCurrentSurface)(EGLint_t)       = dlsym(RTLD_DEFAULT, "eglGetCurrentSurface");
-		EGLContext_t (*p_eglGetCurrentContext)(void)            = dlsym(RTLD_DEFAULT, "eglGetCurrentContext");
-		const char * (*p_eglQueryString)(EGLDisplay_t, EGLint_t) = dlsym(RTLD_DEFAULT, "eglQueryString");
-		EGLBoolean_t (*p_eglQueryContext)(EGLDisplay_t, EGLContext_t, EGLint_t, EGLint_t *) = dlsym(RTLD_DEFAULT, "eglQueryContext");
-		EGLBoolean_t (*p_eglQuerySurface)(EGLDisplay_t, EGLSurface_t, EGLint_t, EGLint_t *) = dlsym(RTLD_DEFAULT, "eglQuerySurface");
-		EGLBoolean_t (*p_eglGetConfigAttrib)(EGLDisplay_t, EGLConfig_t, EGLint_t, EGLint_t *) = dlsym(RTLD_DEFAULT, "eglGetConfigAttrib");
+		EGLDisplay_t (*p_eglGetCurrentDisplay)(void)           = egl_handle ? dlsym(egl_handle, "eglGetCurrentDisplay") : NULL;
+		EGLSurface_t (*p_eglGetCurrentSurface)(EGLint_t)       = egl_handle ? dlsym(egl_handle, "eglGetCurrentSurface") : NULL;
+		EGLContext_t (*p_eglGetCurrentContext)(void)            = egl_handle ? dlsym(egl_handle, "eglGetCurrentContext") : NULL;
+		const char * (*p_eglQueryString)(EGLDisplay_t, EGLint_t) = egl_handle ? dlsym(egl_handle, "eglQueryString") : NULL;
+		EGLBoolean_t (*p_eglQueryContext)(EGLDisplay_t, EGLContext_t, EGLint_t, EGLint_t *) = egl_handle ? dlsym(egl_handle, "eglQueryContext") : NULL;
+		EGLBoolean_t (*p_eglQuerySurface)(EGLDisplay_t, EGLSurface_t, EGLint_t, EGLint_t *) = egl_handle ? dlsym(egl_handle, "eglQuerySurface") : NULL;
+		EGLBoolean_t (*p_eglGetConfigAttrib)(EGLDisplay_t, EGLConfig_t, EGLint_t, EGLint_t *) = egl_handle ? dlsym(egl_handle, "eglGetConfigAttrib") : NULL;
 		/* eglGetConfigs: needed to convert config-id -> EGLConfig handle */
-		EGLBoolean_t (*p_eglGetConfigs)(EGLDisplay_t, EGLConfig_t *, EGLint_t, EGLint_t *) = dlsym(RTLD_DEFAULT, "eglGetConfigs");
-		EGLint_t     (*p_eglGetError)(void)                    = dlsym(RTLD_DEFAULT, "eglGetError");
+		EGLBoolean_t (*p_eglGetConfigs)(EGLDisplay_t, EGLConfig_t *, EGLint_t, EGLint_t *) = egl_handle ? dlsym(egl_handle, "eglGetConfigs") : NULL;
+		EGLint_t     (*p_eglGetError)(void)                    = egl_handle ? dlsym(egl_handle, "eglGetError") : NULL;
 
 		LOG_info("===== EGL CONFIG =====\n");
 
 		/* Verify all symbols resolved */
 		int egl_ok = 1;
-		if (!p_eglGetCurrentDisplay)   { LOG_info("  EGL dlsym FAILED: eglGetCurrentDisplay\n");   egl_ok = 0; }
-		if (!p_eglGetCurrentSurface)   { LOG_info("  EGL dlsym FAILED: eglGetCurrentSurface\n");   egl_ok = 0; }
-		if (!p_eglGetCurrentContext)   { LOG_info("  EGL dlsym FAILED: eglGetCurrentContext\n");    egl_ok = 0; }
-		if (!p_eglQueryString)         { LOG_info("  EGL dlsym FAILED: eglQueryString\n");          egl_ok = 0; }
-		if (!p_eglQueryContext)        { LOG_info("  EGL dlsym FAILED: eglQueryContext\n");          egl_ok = 0; }
-		if (!p_eglQuerySurface)        { LOG_info("  EGL dlsym FAILED: eglQuerySurface\n");         egl_ok = 0; }
-		if (!p_eglGetConfigAttrib)     { LOG_info("  EGL dlsym FAILED: eglGetConfigAttrib\n");      egl_ok = 0; }
-		if (!p_eglGetConfigs)          { LOG_info("  EGL dlsym FAILED: eglGetConfigs\n");           egl_ok = 0; }
-		if (!p_eglGetError)            { LOG_info("  EGL dlsym FAILED: eglGetError\n");             egl_ok = 0; }
+		if (!egl_handle) {
+			LOG_info("  EGL handle not obtainable; skipping EGL dump\n");
+			egl_ok = 0;
+		}
+		if (egl_ok && !p_eglGetCurrentDisplay)   { LOG_info("  EGL dlsym FAILED: eglGetCurrentDisplay\n");   egl_ok = 0; }
+		if (egl_ok && !p_eglGetCurrentSurface)   { LOG_info("  EGL dlsym FAILED: eglGetCurrentSurface\n");   egl_ok = 0; }
+		if (egl_ok && !p_eglGetCurrentContext)   { LOG_info("  EGL dlsym FAILED: eglGetCurrentContext\n");    egl_ok = 0; }
+		if (egl_ok && !p_eglQueryString)         { LOG_info("  EGL dlsym FAILED: eglQueryString\n");          egl_ok = 0; }
+		if (egl_ok && !p_eglQueryContext)        { LOG_info("  EGL dlsym FAILED: eglQueryContext\n");          egl_ok = 0; }
+		if (egl_ok && !p_eglQuerySurface)        { LOG_info("  EGL dlsym FAILED: eglQuerySurface\n");         egl_ok = 0; }
+		if (egl_ok && !p_eglGetConfigAttrib)     { LOG_info("  EGL dlsym FAILED: eglGetConfigAttrib\n");      egl_ok = 0; }
+		if (egl_ok && !p_eglGetConfigs)          { LOG_info("  EGL dlsym FAILED: eglGetConfigs\n");           egl_ok = 0; }
+		if (egl_ok && !p_eglGetError)            { LOG_info("  EGL dlsym FAILED: eglGetError\n");             egl_ok = 0; }
 
 		if (!egl_ok) {
 			LOG_info("  One or more EGL symbols not found; skipping EGL dump\n");
