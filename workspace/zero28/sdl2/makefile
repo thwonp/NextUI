@@ -36,8 +36,13 @@ $(DL_DIR)/$(SDL2_TARBALL):
 	mkdir -p $(DL_DIR)
 	wget -q --show-progress -O $@ $(SDL2_URL)
 
-$(SDL2_SRC)/configure: $(DL_DIR)/$(SDL2_TARBALL)
+$(SDL2_SRC)/configure: $(DL_DIR)/$(SDL2_TARBALL) $(wildcard patches/*.patch)
 	tar -xzf $(DL_DIR)/$(SDL2_TARBALL)
+	for p in $(CURDIR)/patches/*.patch; do \
+		[ -e "$$p" ] || continue; \
+		echo "Applying $$p"; \
+		patch -p1 -d $(SDL2_SRC) < "$$p" || exit 1; \
+	done
 	touch $(SDL2_SRC)/configure
 
 # Note on path nesting: we cd into $(SDL2_SRC)/build and run ../configure

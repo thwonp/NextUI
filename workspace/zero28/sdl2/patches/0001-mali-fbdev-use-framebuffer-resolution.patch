@@ -1,0 +1,53 @@
+mali-fbdev: use framebuffer resolution instead of hardcoded 1280x720
+
+Extend SDL_DisplayData with width/height fields (GE8300 arm only),
+populate them from vinfo.xres/yres in MALI_VideoInit, and use them
+in MALI_CreateWindow. Matches vendor binary layout (two 32-bit words
+at offsets 8 and 12 after the 8-byte EGLNativeWindowType pointer).
+
+---
+--- a/src/video/mali-fbdev/SDL_malivideo.h
++++ b/src/video/mali-fbdev/SDL_malivideo.h
+@@ -22,6 +22,8 @@
+ {
+ #ifdef SDL2_POWERVR_GE8300
+     EGLNativeWindowType native_display;
++    int width;
++    int height;
+ #else
+     struct fbdev_window native_display;
+ #endif
+--- a/src/video/mali-fbdev/SDL_malivideo.c
++++ b/src/video/mali-fbdev/SDL_malivideo.c
+@@ -118,8 +118,11 @@
+     close(fd);
+     system("setterm -cursor off");
+ 
+-#if 0 //TRIMUI for PowerVR GE8300
+-    data->native_display.width = vinfo.xres;
++#ifdef SDL2_POWERVR_GE8300
++    data->width  = vinfo.xres;
++    data->height = vinfo.yres;
++#else
++    data->native_display.width  = vinfo.xres;
+     data->native_display.height = vinfo.yres;
+ #endif
+ 
+@@ -193,13 +196,13 @@
+         return SDL_OutOfMemory();
+     }
+ 
+-#ifndef SDL2_POWERVR_GE8300
++#ifdef SDL2_POWERVR_GE8300
++    window->w = displaydata->width;
++    window->h = displaydata->height;
++#else
+     /* Windows have one size for now */
+     window->w = displaydata->native_display.width;
+     window->h = displaydata->native_display.height;
+-#else
+-    window->w = 1280;
+-    window->h = 720;
+ #endif
+ 
+     /* OpenGL ES is the law here */
