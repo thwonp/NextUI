@@ -1,0 +1,4 @@
+GLIBC_2.17 {
+    global:
+        dlsym;
+};

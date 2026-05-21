@@ -9,7 +9,7 @@ TARGET = egldrain
 CC = $(CROSS_COMPILE)gcc
 
 CFLAGS  = -Os -fpic -Werror
-LDFLAGS = -ldl -s
+LDFLAGS = -ldl -s -Wl,--version-script=egldrain.ver
 
 build:
 	$(CC) $(CFLAGS) -c "$(TARGET).c" -o "$(TARGET).o"
