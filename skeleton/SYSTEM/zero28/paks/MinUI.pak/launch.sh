@@ -50,7 +50,6 @@ sync
 
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:/usr/lib:$LD_LIBRARY_PATH
 export PATH=$SYSTEM_PATH/bin:/usr/bin:$PATH
-export LD_PRELOAD="$SYSTEM_PATH/lib/libegldrain.so${LD_PRELOAD:+:$LD_PRELOAD}"
 
 echo userspace > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 export CPU_PATH=/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed
@@ -130,12 +129,12 @@ EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH"  && sync
 while [ -f $EXEC_PATH ]; do
-	nextui.elf &> $LOGS_PATH/nextui.txt
+	LD_PRELOAD="$SYSTEM_PATH/lib/libegldrain.so" nextui.elf &> $LOGS_PATH/nextui.txt
 	echo $CPU_SPEED_PERF > $CPU_PATH
 
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
-		eval $CMD
+		(export LD_PRELOAD="$SYSTEM_PATH/lib/libegldrain.so"; eval $CMD)
 		rm -f $NEXT_PATH
 		echo $CPU_SPEED_PERF > $CPU_PATH
 	fi

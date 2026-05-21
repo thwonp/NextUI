@@ -906,6 +906,30 @@ egl_dump_done:;
 #undef EGL_VENDOR_STR_
 #undef EGL_CLIENT_APIS_STR_
 #undef EGL_EXTENSIONS_STR_
+		LOG_info("===== QUEUE DEPTH PROBE =====\n");
+		/* Each step: paint a solid color and present. The last color visible
+		 * on the panel after the 5 s hold reveals the effective driver queue
+		 * depth (1 = yellow visible, 2 = blue, 3 = green, 4 = red). */
+		struct { Uint8 r; Uint8 g; Uint8 b; const char *name; } qdp_colors[] = {
+			{ 255,   0,   0, "red"    },
+			{   0, 255,   0, "green"  },
+			{   0,   0, 255, "blue"   },
+			{ 255, 255,   0, "yellow" },
+		};
+		for (int _qi = 0; _qi < 4; _qi++) {
+			SDL_SetRenderDrawColor(vid.renderer,
+				qdp_colors[_qi].r,
+				qdp_colors[_qi].g,
+				qdp_colors[_qi].b,
+				255);
+			SDL_RenderClear(vid.renderer);
+			LOG_info("  step %d: drew %s\n", _qi + 1, qdp_colors[_qi].name);
+			SDL_RenderPresent(vid.renderer);
+			SDL_Delay(1000);
+		}
+		SDL_Delay(5000);
+		LOG_info("===== /QUEUE DEPTH PROBE =====\n");
+		sync();
 	}
 #endif /* PLATFORM_zero28 */
 	/* ---- END TEMPORARY DIAGNOSTIC ---- */
