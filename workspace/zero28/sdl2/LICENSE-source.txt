@@ -1,0 +1,2 @@
+SDL2 2.26.1 (GE8300 variant) — zlib license
+Source: https://github.com/trimui/toolchain_sdk_smartpro/releases/download/20231018/SDL2-2.26.1.GE8300.tgz
