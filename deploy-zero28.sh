@@ -64,6 +64,34 @@ if [ "$TARGET" = "adb" ]; then
             fi
         done
     fi
+    # Replace vendor SDL2 on rootfs with our build.
+    # What:    /usr/magicx/lib/libSDL2-2.0.so.0.2600.1 is overwritten with our
+    #          workspace-built binary.  The existing vendor symlink
+    #          (libSDL2-2.0.so.0 -> libSDL2-2.0.so.0.2600.1) continues to resolve
+    #          correctly because the patch-versioned filename is unchanged.
+    # Backup:  One-shot; stored at
+    #          /mnt/SDCARD/.system/zero28/lib/libSDL2-2.0.so.0.2600.1.vendor
+    #          The guard checks the SD path (stable across reruns), not the rootfs
+    #          path (which would be wrong after the first deploy).
+    # Restore: adb shell cp /mnt/SDCARD/.system/zero28/lib/libSDL2-2.0.so.0.2600.1.vendor \
+    #                       /usr/magicx/lib/libSDL2-2.0.so.0.2600.1
+    # Note:    The non-adb (zip-to-SD flash) path cannot reach the device rootfs at
+    #          deploy time.  If the SD card is fresh-flashed, the rootfs SDL2 remains
+    #          vendor until the next run of: deploy-zero28.sh adb
+    adb shell '
+set -e
+VENDOR_FILE=/usr/magicx/lib/libSDL2-2.0.so.0.2600.1
+SD_FILE=/mnt/SDCARD/.system/zero28/lib/libSDL2-2.0.so.0.2600.1
+BACKUP_FILE=/mnt/SDCARD/.system/zero28/lib/libSDL2-2.0.so.0.2600.1.vendor
+if [ ! -f "$BACKUP_FILE" ]; then
+    echo "==> Backing up vendor SDL2 to SD card..."
+    cp "$VENDOR_FILE" "$BACKUP_FILE"
+fi
+echo "==> Installing workspace SDL2 to rootfs..."
+df /overlay | tail -1
+cp -f "$SD_FILE" "$VENDOR_FILE"
+sync
+'
     adb shell "killall nextui.elf 2>/dev/null; sleep 0.5; sync"
     echo ""
     echo "Done. NextUI will restart automatically."
