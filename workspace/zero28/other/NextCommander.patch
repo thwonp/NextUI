@@ -120,3 +120,16 @@ index e3e646e..7f311d4 100644
                  case SDL_QUIT: return m_retVal;
  #ifdef USE_SDL2
                  case SDL_TEXTINPUT:
+diff --git a/src/screen.cpp b/src/screen.cpp
+index 43d31fa..4dc36e1 100644
+--- a/src/screen.cpp
++++ b/src/screen.cpp
+@@ -81,7 +81,7 @@
+     int window_w = screen.actual_w;
+     int window_h = screen.actual_h;
+     window = SDL_CreateWindow("Commander", SDL_WINDOWPOS_UNDEFINED,
+-        SDL_WINDOWPOS_UNDEFINED, window_h, window_h, window_flags);
++        SDL_WINDOWPOS_UNDEFINED, window_w, window_h, window_flags);
+     if (window == nullptr) {
+         SDL_Log("Failed to create window: %s", SDL_GetError());
+         return 1;
