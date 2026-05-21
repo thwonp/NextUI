@@ -470,6 +470,27 @@ void gfx_flush_state_reset(void)
 	sync_seen_since_flip = 0;
 }
 
+/* Flush counter drain: after a pak render+flip, the EGL queue holds one
+ * buffered frame.  On the first idle pacer call we record that we've seen
+ * it (sync_seen_since_flip = 1).  On the second consecutive idle pacer call
+ * with no intervening flip (i.e. no pak update), we push one extra
+ * present to drain the queue so the panel shows the correct frame. */
+static void gfx_drain_idle(void)
+{
+	if (pending_flushes > 0) {
+		if (sync_seen_since_flip) {
+			/* Idle iteration: drain one queue slot by replaying the
+			 * appropriate flip path.  PLAT_flip(NULL, 0) is safe because
+			 * the function ignores both parameters. */
+			if (last_flip_kind == LAST_FLIP_SDL)       PLAT_flip(NULL, 0);
+			else if (last_flip_kind == LAST_FLIP_GL)   PLAT_GL_Swap();
+			pending_flushes--;
+		} else {
+			sync_seen_since_flip = 1;
+		}
+	}
+}
+
 void GFX_startFrame(void)
 {
 	frame_start = SDL_GetTicks();
@@ -710,23 +731,7 @@ void GFX_GL_Swap()
 // eventually this function should be removed as its only here because of all the audio buffer based delay stuff
 void GFX_sync(void)
 {
-	/* Flush counter drain: after a pak render+flip, the EGL queue holds one
-	 * buffered frame.  On the first idle GFX_sync we record that we've seen
-	 * it (sync_seen_since_flip = 1).  On the second consecutive GFX_sync
-	 * with no intervening flip (i.e. no pak update), we push one extra
-	 * present to drain the queue so the panel shows the correct frame. */
-	if (pending_flushes > 0) {
-		if (sync_seen_since_flip) {
-			/* Idle iteration: drain one queue slot by replaying the
-			 * appropriate flip path.  PLAT_flip(NULL, 0) is safe because
-			 * the function ignores both parameters. */
-			if (last_flip_kind == LAST_FLIP_SDL)       PLAT_flip(NULL, 0);
-			else if (last_flip_kind == LAST_FLIP_GL)   PLAT_GL_Swap();
-			pending_flushes--;
-		} else {
-			sync_seen_since_flip = 1;
-		}
-	}
+	gfx_drain_idle();
 
 	uint32_t frame_duration = SDL_GetTicks() - frame_start;
 	if (gfx.vsync != VSYNC_OFF)
@@ -864,6 +869,7 @@ void GFX_flip_fixed_rate(SDL_Surface *screen, double target_fps)
 // if a fake vsycn delay is really needed
 void GFX_delay(void)
 {
+	gfx_drain_idle();
 	uint32_t frame_duration = SDL_GetTicks() - frame_start;
 	if (frame_duration < ((1 / SCREEN_FPS) * 1000))
 		SDL_Delay(((1 / SCREEN_FPS) * 1000) - frame_duration);
