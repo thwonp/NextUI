@@ -65,31 +65,25 @@ if [ "$TARGET" = "adb" ]; then
         done
     fi
     # Replace vendor SDL2 on rootfs with our build.
-    # What:    /usr/magicx/lib/libSDL2-2.0.so.0.2600.1 is overwritten with our
-    #          workspace-built binary.  The existing vendor symlink
-    #          (libSDL2-2.0.so.0 -> libSDL2-2.0.so.0.2600.1) continues to resolve
-    #          correctly because the patch-versioned filename is unchanged.
-    # Backup:  One-shot; stored at
-    #          /mnt/SDCARD/.system/zero28/lib/libSDL2-2.0.so.0.2600.1.vendor
-    #          The guard checks the SD path (stable across reruns), not the rootfs
-    #          path (which would be wrong after the first deploy).
-    # Restore: adb shell cp /mnt/SDCARD/.system/zero28/lib/libSDL2-2.0.so.0.2600.1.vendor \
-    #                       /usr/magicx/lib/libSDL2-2.0.so.0.2600.1
+    # Backup:  vendor library is archived locally at
+    #          /home/thwonp/opencode/archives/libSDL2-2.0.so.0.2600.1.zero28-vendor
+    #          (sha256 33fa676df538f2756f4af7f0e276e5a055d3543984154d28d744649b5f8a3936)
+    #          Not stored on device — the overlayfs upper layer is too small
+    #          (~2.9MB total) to keep both vendor and our build resident.
+    # Restore: adb push /home/thwonp/opencode/archives/libSDL2-2.0.so.0.2600.1.zero28-vendor \
+    #                   /usr/magicx/lib/libSDL2-2.0.so.0.2600.1
     # Note:    The non-adb (zip-to-SD flash) path cannot reach the device rootfs at
-    #          deploy time.  If the SD card is fresh-flashed, the rootfs SDL2 remains
-    #          vendor until the next run of: deploy-zero28.sh adb
+    #          deploy time. After a fresh flash, the rootfs SDL2 remains vendor until
+    #          the next run of: deploy-zero28.sh adb
     adb shell '
 set -e
 VENDOR_FILE=/usr/magicx/lib/libSDL2-2.0.so.0.2600.1
 SD_FILE=/mnt/SDCARD/.system/zero28/lib/libSDL2-2.0.so.0.2600.1
-BACKUP_FILE=/mnt/SDCARD/.system/zero28/lib/libSDL2-2.0.so.0.2600.1.vendor
-if [ ! -f "$BACKUP_FILE" ]; then
-    echo "==> Backing up vendor SDL2 to SD card..."
-    cp "$VENDOR_FILE" "$BACKUP_FILE"
-fi
+echo "==> Removing vendor SDL2 from rootfs (frees overlay copy-up)..."
+rm -f "$VENDOR_FILE"
+sync
 echo "==> Installing workspace SDL2 to rootfs..."
-df /overlay | tail -1
-cp -f "$SD_FILE" "$VENDOR_FILE"
+cp "$SD_FILE" "$VENDOR_FILE"
 sync
 '
     adb shell "killall nextui.elf 2>/dev/null; sleep 0.5; sync"
