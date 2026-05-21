@@ -5,11 +5,6 @@
 
 ///////////////////////////////
 
-/* Build-time token so generic code can #ifdef-gate zero28-only code. */
-#define PLATFORM_zero28
-
-///////////////////////////////
-
 #include "sdl.h"
 
 ///////////////////////////////
