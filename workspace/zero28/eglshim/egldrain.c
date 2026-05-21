@@ -23,17 +23,23 @@ typedef void*      (*dlsym_t)(void*, const char*);
 typedef EGLBoolean (*eglSwapBuffers_t)(EGLDisplay, EGLSurface);
 typedef EGLBoolean (*eglSurfaceAttrib_t)(EGLDisplay, EGLSurface, EGLint, EGLint);
 typedef EGLBoolean (*eglQuerySurface_t)(EGLDisplay, EGLSurface, EGLint, EGLint*);
+typedef EGLBoolean (*eglDestroySurface_t)(EGLDisplay, EGLSurface);
+typedef EGLBoolean (*eglTerminate_t)(EGLDisplay);
 typedef int        (*nanosleep_t)(const struct timespec*, struct timespec*);
 typedef int        (*clock_nanosleep_t)(clockid_t, int, const struct timespec*, struct timespec*);
 
-/* Forward declaration — eglSwapBuffers is defined below but called from
- * maybe_drain(), which appears earlier in the file. */
+/* Forward declarations — functions defined below but called from hooks or
+ * other functions that appear earlier in the file. */
 EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface sfc);
+EGLBoolean eglDestroySurface(EGLDisplay dpy, EGLSurface sfc);
+EGLBoolean eglTerminate(EGLDisplay dpy);
 
 static dlsym_t              real_dlsym;
 static eglSwapBuffers_t     real_eglSwapBuffers;
 static eglSurfaceAttrib_t   real_eglSurfaceAttrib;
 static eglQuerySurface_t    real_eglQuerySurface;
+static eglDestroySurface_t  real_eglDestroySurface;
+static eglTerminate_t       real_eglTerminate;
 static nanosleep_t          real_nanosleep;
 static clock_nanosleep_t    real_clock_nanosleep;
 
@@ -175,6 +181,78 @@ EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface sfc) {
     return rc;
 }
 
+/* eglDestroySurface hook. Invalidates cached drain state before the real
+ * destroy so a subsequent sleep hook cannot fire eglSwapBuffers against a
+ * dead surface. Called on the render thread during SDL_VideoQuit. */
+EGLBoolean eglDestroySurface(EGLDisplay dpy, EGLSurface sfc) {
+    if (!real_eglDestroySurface) {
+        if (!real_dlsym) return 0;
+        real_eglDestroySurface = (eglDestroySurface_t)real_dlsym(RTLD_NEXT, "eglDestroySurface");
+        if (!real_eglDestroySurface) return 0;
+    }
+
+    int drain_cleared = 0;
+
+    /* Clear render-thread drain state before the real destroy. */
+    if (last_sfc == sfc && last_dpy == dpy) {
+        pending_drains = 0;
+        last_dpy = NULL;
+        last_sfc = NULL;
+        drain_cleared = 1;
+    }
+
+    /* Remove matching entry from surface cache. */
+    pthread_mutex_lock(&surface_mutex);
+    for (int i = 0; i < surface_count; i++) {
+        if (surface_cache[i].dpy == dpy && surface_cache[i].sfc == sfc) {
+            surface_cache[i] = surface_cache[surface_count - 1];
+            surface_count--;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&surface_mutex);
+
+    EGLBoolean rc = real_eglDestroySurface(dpy, sfc);
+    dprintf(2, "[egldrain] eglDestroySurface dpy=%p sfc=%p drain_cleared=%d\n",
+            dpy, sfc, drain_cleared);
+    return rc;
+}
+
+/* eglTerminate hook. Invalidates cached drain state for all surfaces on the
+ * given display before the real terminate. */
+EGLBoolean eglTerminate(EGLDisplay dpy) {
+    if (!real_eglTerminate) {
+        if (!real_dlsym) return 0;
+        real_eglTerminate = (eglTerminate_t)real_dlsym(RTLD_NEXT, "eglTerminate");
+        if (!real_eglTerminate) return 0;
+    }
+
+    int drain_cleared = 0;
+
+    /* Clear render-thread drain state if the display matches. */
+    if (last_dpy == dpy) {
+        pending_drains = 0;
+        last_dpy = NULL;
+        last_sfc = NULL;
+        drain_cleared = 1;
+    }
+
+    /* Remove all cache entries for this display. */
+    pthread_mutex_lock(&surface_mutex);
+    for (int i = surface_count - 1; i >= 0; i--) {
+        if (surface_cache[i].dpy == dpy) {
+            surface_cache[i] = surface_cache[surface_count - 1];
+            surface_count--;
+        }
+    }
+    pthread_mutex_unlock(&surface_mutex);
+
+    EGLBoolean rc = real_eglTerminate(dpy);
+    dprintf(2, "[egldrain] eglTerminate dpy=%p drain_cleared=%d\n",
+            dpy, drain_cleared);
+    return rc;
+}
+
 /* nanosleep hook. Only the render thread runs the drain; all other threads
  * fast-path through to the real syscall with zero extra overhead. */
 int nanosleep(const struct timespec *req, struct timespec *rem) {
@@ -257,6 +335,14 @@ void* dlsym(void* handle, const char* symbol) {
     if (strcmp(symbol, "eglSurfaceAttrib") == 0) {
         if (!real_eglSurfaceAttrib) real_eglSurfaceAttrib = (eglSurfaceAttrib_t)result;
         /* Pass through — no hook needed on this entry point. */
+    }
+    if (strcmp(symbol, "eglDestroySurface") == 0) {
+        if (!real_eglDestroySurface) real_eglDestroySurface = (eglDestroySurface_t)result;
+        return (void*)&eglDestroySurface;
+    }
+    if (strcmp(symbol, "eglTerminate") == 0) {
+        if (!real_eglTerminate) real_eglTerminate = (eglTerminate_t)result;
+        return (void*)&eglTerminate;
     }
     return result;
 }
