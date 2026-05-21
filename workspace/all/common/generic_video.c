@@ -616,7 +616,6 @@ void PLAT_resetShaders() {
 
 SDL_Surface* PLAT_initVideo(void) {
 	LOG_info("PLAT_initVideo: entering\n");
-	gfx_flush_state_reset(); /* clear EGL flush counter on every video init */
 	sync();
 
 #if NEXTUI_TSAN
