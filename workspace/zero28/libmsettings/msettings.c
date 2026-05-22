@@ -675,8 +675,7 @@ void SetRawVolume(int val) { // 0 (mute) or 96-160 (audible range)
 }
 
 #define DISP_LCD_SET_BRIGHTNESS  0x102
-void SetRawBrightness(int val) { // 0-255
-	if (val > 0) val = 256 - val;  // DISP_LCD_SET_BRIGHTNESS: higher raw = dimmer on this display
+void SetRawBrightness(int val) { // 0-255, linear: higher = brighter
 	int fd = open("/dev/disp", O_RDWR);
 	if (fd >= 0) {
 		unsigned long param[4] = {0, val, 0, 0};

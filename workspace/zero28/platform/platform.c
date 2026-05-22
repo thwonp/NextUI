@@ -2,7 +2,6 @@
 // zero28
 #include <stdio.h>
 #include <stdlib.h>
-#include <linux/fb.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <fcntl.h>
@@ -181,18 +180,15 @@ bool PLAT_btIsConnected(void) { return false; }
 
 ///////////////////////////////
 
-#define BLANK_PATH "/sys/class/graphics/fb0/blank"
 void PLAT_enableBacklight(int enable) {
 	if (enable) {
+		system("bl_enable");
 		SetRawBrightness(8);                    // wake fix: prevents screen staying dark on some board revisions
 		SetBrightness(GetBrightness());
-		system("bl_enable");
-		putInt(BLANK_PATH, FB_BLANK_UNBLANK);
 	}
 	else {
 		SetRawBrightness(0);
 		system("bl_disable");
-		putInt(BLANK_PATH, FB_BLANK_POWERDOWN);
 	}
 }
 
@@ -310,6 +306,7 @@ void PLAT_initDefaultLeds(void) {}
 ///////////////////////////////
 
 void PLAT_initPlatform(void) {
+	system("bl_enable"); // flip boot-time inverted PWM mode → linear before any brightness call
 	// Apply saved NTP state — Moss does not autostart sysntpd
 	if (CFG_getNTP())
 		system("/etc/init.d/sysntpd start &");
