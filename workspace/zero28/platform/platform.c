@@ -182,8 +182,9 @@ bool PLAT_btIsConnected(void) { return false; }
 
 void PLAT_enableBacklight(int enable) {
 	if (enable) {
-		system("bl_enable");
-		SetRawBrightness(8);                    // wake fix: prevents screen staying dark on some board revisions
+		system("bl_disable");
+		system("bl_enable"); // DISABLE→ENABLE transition flips INVERTED → LINEAR
+		SetRawBrightness(8);
 		SetBrightness(GetBrightness());
 	}
 	else {
@@ -306,7 +307,8 @@ void PLAT_initDefaultLeds(void) {}
 ///////////////////////////////
 
 void PLAT_initPlatform(void) {
-	system("bl_enable"); // flip boot-time inverted PWM mode → linear before any brightness call
+	system("bl_disable");
+	system("bl_enable"); // DISABLE→ENABLE transition flips boot-time INVERTED → LINEAR
 	// Apply saved NTP state — Moss does not autostart sysntpd
 	if (CFG_getNTP())
 		system("/etc/init.d/sysntpd start &");
