@@ -129,12 +129,12 @@ EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH"  && sync
 while [ -f $EXEC_PATH ]; do
-	LD_PRELOAD="$SYSTEM_PATH/lib/libegldrain.so" nextui.elf &> $LOGS_PATH/nextui.txt
+	nextui.elf &> $LOGS_PATH/nextui.txt
 	echo $CPU_SPEED_PERF > $CPU_PATH
 
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
-		(export LD_PRELOAD="$SYSTEM_PATH/lib/libegldrain.so"; eval $CMD)
+		eval $CMD
 		rm -f $NEXT_PATH
 		echo $CPU_SPEED_PERF > $CPU_PATH
 	fi

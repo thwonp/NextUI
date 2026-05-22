@@ -1,0 +1,50 @@
+Zero28: set EGL_BUFFER_PRESERVED on new EGL window surfaces (PowerVR GE8300)
+
+The PowerVR GE8300 userspace stack holds one extra frame in its present
+queue, causing ~2-frame input lag. The GFX-layer drain (gfx_drain_idle)
+fires a replay present after an idle gap to drain that queued frame.
+EGL_BUFFER_PRESERVED is load-bearing for the replay: without it the
+default EGL_BUFFER_DESTROYED mode leaves the backbuffer undefined after
+eglSwapBuffers, so the drain present would show garbage. With PRESERVED
+the backbuffer content is retained and the drain replay shows the correct
+frame. Non-fatal: eglSurfaceAttrib returns failure on configs that don't
+advertise EGL_SWAP_BEHAVIOR_PRESERVED_BIT; degraded drain (stale content)
+is acceptable in that case.
+
+---
+--- a/src/video/SDL_egl_c.h
++++ b/src/video/SDL_egl_c.h
+@@ -103,6 +103,9 @@
+                                             void **devices,
+                                             EGLint *num_devices);
+
++    EGLBoolean(EGLAPIENTRY *eglSurfaceAttrib)(EGLDisplay dpy, EGLSurface surface,
++                                              EGLint attribute, EGLint value);
++
+    /* Atomic functions */
+
+     EGLSyncKHR(EGLAPIENTRY *eglCreateSyncKHR)(EGLDisplay dpy, EGLenum type, const EGLint *attrib_list);
+--- a/src/video/SDL_egl.c
++++ b/src/video/SDL_egl.c
+@@ -450,6 +450,7 @@
+     LOAD_FUNC(eglQueryString);
+     LOAD_FUNC(eglGetError);
+     LOAD_FUNC_EGLEXT(eglQueryDevicesEXT);
++    LOAD_FUNC_EGLEXT(eglSurfaceAttrib);
+     LOAD_FUNC_EGLEXT(eglGetPlatformDisplayEXT);
+     /* Atomic functions */
+     LOAD_FUNC_EGLEXT(eglCreateSyncKHR);
+@@ -1254,6 +1255,13 @@
+             nw, &attribs[0]);
+     if (surface == EGL_NO_SURFACE) {
+         SDL_EGL_SetError("unable to create an EGL window surface", "eglCreateWindowSurface");
++    } else if (_this->egl_data->eglSurfaceAttrib) {
++        /* Zero28: preserve backbuffer across eglSwapBuffers so the drain
++           replay in gfx_drain_idle shows the same content. PowerVR
++           GE8300 honors EGL_SWAP_BEHAVIOR_PRESERVED_BIT. Non-fatal. */
++        _this->egl_data->eglSurfaceAttrib(
++            _this->egl_data->egl_display, surface,
++            EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED);
+     }
+
+ #if SDL_VIDEO_DRIVER_ANDROID

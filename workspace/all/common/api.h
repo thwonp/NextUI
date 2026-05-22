@@ -287,6 +287,7 @@ SDL_Color /*GFX_*/ uintToColour(uint32_t colour);
 #define GFX_clearAll PLAT_clearAll // (void)
 
 void GFX_startFrame(void);
+void gfx_flush_state_reset(void); /* reset EGL flush counter (call from PLAT_initVideo) */
 void GFX_flip(SDL_Surface* screen);
 void PLAT_flipHidden();
 void GFX_flip_fixed_rate(SDL_Surface* screen, double target_fps); // if target_fps is 0, then use the native screen FPS
