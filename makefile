@@ -132,7 +132,6 @@ endif
 endif
 
 ifeq ($(PLATFORM), zero28)
-	cp ./workspace/$(PLATFORM)/eglshim/libegldrain.so ./build/SYSTEM/$(PLATFORM)/lib
 	cp ./workspace/$(PLATFORM)/sdl2/output/libSDL2-2.0.so.0.2600.1 ./build/SYSTEM/$(PLATFORM)/lib
 	# Audio resampling
 	cp ./workspace/all/minarch/build/$(PLATFORM)/libsamplerate.* ./build/SYSTEM/$(PLATFORM)/lib/
