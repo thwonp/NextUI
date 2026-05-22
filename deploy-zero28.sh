@@ -64,64 +64,14 @@ if [ "$TARGET" = "adb" ]; then
             fi
         done
     fi
-    # Replace vendor SDL2 on rootfs with our build.
-    # Backup:  vendor library is archived locally at
-    #          /home/thwonp/opencode/archives/libSDL2-2.0.so.0.2600.1.zero28-vendor
-    #          (sha256 33fa676df538f2756f4af7f0e276e5a055d3543984154d28d744649b5f8a3936)
-    #          Not stored on device — the overlayfs upper layer is too small
-    #          (~2.9MB total) to keep both vendor and our build resident.
-    # Restore: adb push /home/thwonp/opencode/archives/libSDL2-2.0.so.0.2600.1.zero28-vendor \
-    #                   /usr/magicx/lib/libSDL2-2.0.so.0.2600.1
-    # Note:    The non-adb (zip-to-SD flash) path cannot reach the device rootfs at
-    #          deploy time. After a fresh flash, the rootfs SDL2 remains vendor until
-    #          the next run of: deploy-zero28.sh adb
-    adb shell '
-set -e
-VENDOR_FILE=/usr/magicx/lib/libSDL2-2.0.so.0.2600.1
-SD_FILE=/mnt/SDCARD/.system/zero28/lib/libSDL2-2.0.so.0.2600.1
-
-# Find launch.sh via nextui.elf PPID. launch.sh wraps nextui in a
-# respawn loop; without SIGSTOP the new nextui re-mmaps SDL2
-# within ~10ms of the kill, blocking rm from freeing blocks.
-NEXTUI_PID=$(pidof nextui.elf 2>/dev/null || true)
-LAUNCH_PID=""
-if [ -n "$NEXTUI_PID" ]; then
-    LAUNCH_PID=$(awk "/^PPid:/ {print \$2}" /proc/$NEXTUI_PID/status 2>/dev/null || true)
-fi
-
-if [ -n "$LAUNCH_PID" ]; then
-    trap "kill -CONT \$LAUNCH_PID 2>/dev/null || true" EXIT
-    echo "==> Suspending launch.sh ($LAUNCH_PID)..."
-    kill -STOP "$LAUNCH_PID"
-fi
-
-if [ -n "$NEXTUI_PID" ]; then
-    echo "==> Killing nextui ($NEXTUI_PID) to release SDL2 mmap..."
-    kill "$NEXTUI_PID" 2>/dev/null || true
-    # Wait up to 1s for graceful exit
-    for i in 1 2 3 4 5 6 7 8 9 10; do
-        kill -0 "$NEXTUI_PID" 2>/dev/null || break
-        sleep 0.1
-    done
-    # Escalate if still alive
-    if kill -0 "$NEXTUI_PID" 2>/dev/null; then
-        kill -9 "$NEXTUI_PID" 2>/dev/null || true
-        sleep 0.1
-    fi
-fi
-
-echo "==> Removing vendor SDL2 from rootfs (frees overlay copy-up)..."
-rm -f "$VENDOR_FILE"
-sync
-echo "==> Installing workspace SDL2 to rootfs..."
-cp "$SD_FILE" "$VENDOR_FILE"
-sync
-
-if [ -n "$LAUNCH_PID" ]; then
-    echo "==> Resuming launch.sh (nextui will respawn with new SDL2)..."
-    kill -CONT "$LAUNCH_PID"
-fi
-'
+    # SDL2 is loaded from SD card via LD_LIBRARY_PATH ($SYSTEM_PATH/lib is first).
+    # vfat has no symlinks, so we keep a soname copy alongside the versioned file.
+    # This avoids any rootfs overlay writes (overlay is only ~2.9MB).
+    echo "==> Creating SDL2 soname copy on SD card..."
+    adb shell "cp /mnt/SDCARD/.system/zero28/lib/libSDL2-2.0.so.0.2600.1 /mnt/SDCARD/.system/zero28/lib/libSDL2-2.0.so.0"
+    # Restart nextui to pick up new bin/lib from SD card
+    echo "==> Restarting nextui..."
+    adb shell "kill \$(pidof nextui.elf 2>/dev/null) 2>/dev/null || true"
     echo ""
     echo "Done. NextUI will restart automatically."
 else
