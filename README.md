@@ -1,3 +1,7 @@
+## Alpha Build of NextUI for the MagicX Mini Zero 28.
+
+## Please report any bugs via GitHub Issues
+
 <div align="center">
 
   <img width=128px src="github/logo_outline.png">
