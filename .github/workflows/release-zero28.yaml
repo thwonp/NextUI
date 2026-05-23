@@ -44,10 +44,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4.2.2
 
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
       - name: Generate cores matrix
         id: cores
         run: |
+          set -eo pipefail
           CORES="$(make cores-json PLATFORM=zero28)"
+          if [ -z "$CORES" ] || [ "$CORES" = "[]" ]; then
+            echo "ERROR: cores-json produced empty output" >&2
+            exit 1
+          fi
           echo "cores=${CORES}" >> "$GITHUB_OUTPUT"
 
   build-core:
