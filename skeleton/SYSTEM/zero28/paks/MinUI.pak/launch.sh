@@ -57,10 +57,7 @@ wifion=1
 parsed=$(nextval.elf wifi 2>/dev/null | sed -n 's/.*"wifi": \([0-9]*\).*/\1/p')
 [ -n "$parsed" ] && wifion=$parsed
 
-echo userspace > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-export CPU_PATH=/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed
-CPU_SPEED_PERF=1800000
-echo $CPU_SPEED_PERF > $CPU_PATH
+sh "$SYSTEM_PATH/bin/governor.sh" "auto"
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 batmon.elf & # &> $SDCARD_PATH/batmon.txt &
@@ -138,7 +135,6 @@ while [ -f $EXEC_PATH ]; do
 	wifi_start_pid=""
 	[ "$wifion" -eq 1 ] && { $SYSTEM_PATH/etc/wifi/wifi_init.sh start > /dev/null 2>&1 & wifi_start_pid=$!; }
 	nextui.elf &> $LOGS_PATH/nextui.txt
-	echo $CPU_SPEED_PERF > $CPU_PATH
 
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
@@ -147,7 +143,6 @@ while [ -f $EXEC_PATH ]; do
 		wifi_start_pid=""
 		eval $CMD
 		rm -f $NEXT_PATH
-		echo $CPU_SPEED_PERF > $CPU_PATH
 	fi
 
 	if [ -f "/tmp/poweroff" ]; then
