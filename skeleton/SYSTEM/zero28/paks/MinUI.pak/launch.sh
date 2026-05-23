@@ -135,13 +135,16 @@ EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH"  && sync
 while [ -f $EXEC_PATH ]; do
-	[ "$wifion" -eq 1 ] && /etc/wifi/wifi_init.sh start > /dev/null 2>&1 &
+	wifi_start_pid=""
+	[ "$wifion" -eq 1 ] && { /etc/wifi/wifi_init.sh start > /dev/null 2>&1 & wifi_start_pid=$!; }
 	nextui.elf &> $LOGS_PATH/nextui.txt
 	echo $CPU_SPEED_PERF > $CPU_PATH
 
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
+		[ -n "$wifi_start_pid" ] && { kill "$wifi_start_pid" 2>/dev/null; wait "$wifi_start_pid" 2>/dev/null; }
 		/etc/wifi/wifi_init.sh stop > /dev/null 2>&1
+		wifi_start_pid=""
 		eval $CMD
 		rm -f $NEXT_PATH
 		echo $CPU_SPEED_PERF > $CPU_PATH
