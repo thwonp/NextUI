@@ -51,6 +51,12 @@ sync
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:/usr/lib:$LD_LIBRARY_PATH
 export PATH=$SYSTEM_PATH/bin:/usr/bin:$PATH
 
+# read user wifi preference (default on); used to avoid restarting wifi if the
+# user has disabled it in settings
+wifion=1
+parsed=$(nextval.elf wifi 2>/dev/null | sed -n 's/.*"wifi": \([0-9]*\).*/\1/p')
+[ -n "$parsed" ] && wifion=$parsed
+
 echo userspace > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 export CPU_PATH=/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed
 CPU_SPEED_PERF=1800000
@@ -129,11 +135,13 @@ EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH"  && sync
 while [ -f $EXEC_PATH ]; do
+	[ "$wifion" -eq 1 ] && /etc/wifi/wifi_init.sh start > /dev/null 2>&1 &
 	nextui.elf &> $LOGS_PATH/nextui.txt
 	echo $CPU_SPEED_PERF > $CPU_PATH
 
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
+		/etc/wifi/wifi_init.sh stop > /dev/null 2>&1
 		eval $CMD
 		rm -f $NEXT_PATH
 		echo $CPU_SPEED_PERF > $CPU_PATH
