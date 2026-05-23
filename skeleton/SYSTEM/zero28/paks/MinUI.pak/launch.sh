@@ -13,6 +13,7 @@ export CORES_PATH="$SYSTEM_PATH/cores"
 export USERDATA_PATH="$SDCARD_PATH/.userdata/$PLATFORM"
 export SHARED_USERDATA_PATH="$SDCARD_PATH/.userdata/shared"
 export LOGS_PATH="$USERDATA_PATH/logs"
+export HOOKS_PATH="$USERDATA_PATH/.hooks"
 export DATETIME_PATH="$SHARED_USERDATA_PATH/datetime.txt"
 export HOME="$USERDATA_PATH"
 
@@ -35,6 +36,7 @@ mkdir -p "$SAVES_PATH"
 mkdir -p "$CHEATS_PATH"
 mkdir -p "$USERDATA_PATH"
 mkdir -p "$LOGS_PATH"
+mkdir -p "$HOOKS_PATH"
 mkdir -p "$SHARED_USERDATA_PATH/.minui"
 
 export IS_NEXT="yes"
@@ -72,6 +74,9 @@ AUTO_PATH=$USERDATA_PATH/auto.sh
 if [ -f "$AUTO_PATH" ]; then
 	"$AUTO_PATH"
 fi
+
+# Composable boot hooks (run after auto.sh for backward compatibility)
+"$SYSTEM_PATH/bin/run_hooks.sh" boot.d
 
 cd $(dirname "$0")
 
@@ -128,6 +133,21 @@ sleep 3
 } >> "$LOGS_PATH/launch_diag.txt" 2>&1
 sync
 
+parse_hook_cmd() {
+	HOOK_CMD="$1"
+	HOOK_EMU_PATH=$(echo "$HOOK_CMD" | sed "s/^'\\([^']*\\)'.*/\\1/")
+	_remainder=$(echo "$HOOK_CMD" | sed "s/^'[^']*'//")
+	if echo "$_remainder" | grep -q "'"; then
+		HOOK_TYPE="rom"
+		HOOK_ROM_PATH=$(echo "$_remainder" | sed "s/.*'\\([^']*\\)'.*/\\1/")
+	else
+		HOOK_TYPE="pak"
+		HOOK_ROM_PATH=""
+	fi
+	[ -f /tmp/last.txt ] && HOOK_LAST=$(cat /tmp/last.txt) || HOOK_LAST=""
+	export HOOK_CMD HOOK_EMU_PATH HOOK_TYPE HOOK_ROM_PATH HOOK_LAST
+}
+
 EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH"  && sync
@@ -138,10 +158,13 @@ while [ -f $EXEC_PATH ]; do
 
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
+		parse_hook_cmd "$CMD"
 		[ -n "$wifi_start_pid" ] && { kill "$wifi_start_pid" 2>/dev/null; wait "$wifi_start_pid" 2>/dev/null; }
 		$SYSTEM_PATH/etc/wifi/wifi_init.sh stop > /dev/null 2>&1
 		wifi_start_pid=""
+		"$SYSTEM_PATH/bin/run_hooks.sh" pre-launch.d
 		eval $CMD
+		"$SYSTEM_PATH/bin/run_hooks.sh" post-launch.d
 		rm -f $NEXT_PATH
 	fi
 
