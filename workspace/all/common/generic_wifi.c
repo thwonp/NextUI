@@ -143,8 +143,8 @@ int PLAT_wifiScan(struct WIFI_network *networks, int max)
     wifilog("PLAT_wifiScan: Starting WiFi scan...\n");
     // Trigger a scan
     system(WPA_CLI_CMD " scan 2>/dev/null");
-    wifilog("PLAT_wifiScan: Waiting 2s for scan to complete...\n");
-	usleep(2000000); // Give time for scan to complete
+    wifilog("PLAT_wifiScan: Waiting 1s for scan to complete...\n");
+	usleep(1000000); // Give time for scan to complete
 
     wifilog("PLAT_wifiScan: Retrieving scan results...\n");
     // Get scan results
@@ -561,6 +561,11 @@ void PLAT_wifiConnectPass(const char *ssid, WifiSecurityType sec, const char* pa
 		wifilog("Using existing network configuration...\n");
 	}
 	
+	// Clear any zero-BSSID filter before enabling, so save_config won't persist
+	// bssid=00:00:00:00:00:00 which would prevent association on next start.
+	snprintf(cmd, sizeof(cmd), "%s set_network %d bssid any 2>/dev/null", WPA_CLI_CMD, network_id);
+	system(cmd);
+
 	// Enable network
 	wifilog("Enabling network %d...\n", network_id);
 	snprintf(cmd, sizeof(cmd), "%s enable_network %d 2>/dev/null", WPA_CLI_CMD, network_id);

@@ -98,6 +98,10 @@ void Menu::updater()
 
     while (!quit && !globalQuit)
     {
+        // Yield before first iteration so Settings can render a frame and
+        // accept input before the worker competes for resources.
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
         // TODO: pause when menu is not rendered
         if (WIFI_enabled())
         {
@@ -128,6 +132,12 @@ void Menu::updater()
                 }
             }
 
+            // Pre-compute known-credentials flags outside WriteLock to avoid
+            // holding the lock while spawning wpa_cli subprocesses (one per SSID).
+            std::map<std::string, bool> knownSsids;
+            for (auto &[s, r] : scanSsids)
+                knownSsids[s] = WIFI_isKnown(r.ssid, r.security);
+
             // something changed?
             if (!menuOpen)
             {
@@ -146,7 +156,7 @@ void Menu::updater()
                     for (auto &[s, r] : scanSsids)
                     {
                         bool connected = false;
-                        bool hasCredentials = WIFI_isKnown(r.ssid, r.security);
+                        bool hasCredentials = knownSsids[s];
 
                         if (strcmp(connection.ssid, r.ssid) == 0)
                             connected = true;
