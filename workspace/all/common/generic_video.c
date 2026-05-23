@@ -599,7 +599,11 @@ SDL_Surface* PLAT_initVideo(void) {
 		LOG_info("  [%d] %s\n", i, rinfo.name);
 	}
 	sync();
+#ifdef PLAT_NO_VSYNC
+	vid.renderer = SDL_CreateRenderer(vid.window, -1, SDL_RENDERER_ACCELERATED);
+#else
 	vid.renderer = SDL_CreateRenderer(vid.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+#endif
 	LOG_info("PLAT_initVideo: SDL_CreateRenderer done\n");
 	sync();
 #if defined(USE_GLES)
@@ -634,6 +638,9 @@ SDL_Surface* PLAT_initVideo(void) {
 	LOG_info("PLAT_initVideo: SDL_GL_CreateContext done, ctx=%p\n", (void*)vid.gl_context);
 	sync();
 	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
+#ifdef PLAT_NO_VSYNC
+	SDL_GL_SetSwapInterval(0);
+#endif
 	glViewport(0, 0, w, h);
 	LOG_info("PLAT_initVideo: glViewport done\n");
 	sync();

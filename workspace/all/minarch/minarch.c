@@ -5622,13 +5622,15 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 	renderer.blit = GFX_getScaler(&renderer);
 }
 static void screen_flip(SDL_Surface* screen) {
-	
 	if (use_core_fps) {
 		GFX_flip_fixed_rate(screen, core.fps);
 	}
 	else {
+#ifdef PLAT_NO_VSYNC
+		GFX_flip_fixed_rate(screen, SCREEN_FPS);
+#else
 		GFX_GL_Swap();
-		// GFX_flip(screen);
+#endif
 	}
 }
 
