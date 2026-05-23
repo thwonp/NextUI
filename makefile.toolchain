@@ -32,8 +32,8 @@ $(INIT_IF_NECESSARY): $(GIT_IF_NECESSARY)
 
 $(GIT_IF_NECESSARY):
 	mkdir -p toolchains
-	git clone https://github.com/LoveRetro/$(PLATFORM)-toolchain/ toolchains/$(PLATFORM)-toolchain
-	$(CONTAINER_RUNTIME) pull $(IMAGE_NAME) && touch toolchains/$(PLATFORM)-toolchain/.build
+	git clone https://github.com/LoveRetro/$(TOOLCHAIN_PLATFORM)-toolchain/ toolchains/$(TOOLCHAIN_PLATFORM)-toolchain
+	$(CONTAINER_RUNTIME) pull $(IMAGE_NAME) && touch toolchains/$(TOOLCHAIN_PLATFORM)-toolchain/.build
 
 clean:
 	cd toolchains/$(TOOLCHAIN_PLATFORM)-toolchain && make clean
