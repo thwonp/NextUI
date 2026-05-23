@@ -128,7 +128,7 @@
 
 #define SDCARD_PATH "/mnt/SDCARD"
 #define MUTE_VOLUME_RAW 0 // 0 = mute (silent); audible range is 96-160
-#define SAMPLES 2048
+#define SAMPLES 1024
 
 // this should be set to the devices native screen refresh rate
 #define SCREEN_FPS 60.0
