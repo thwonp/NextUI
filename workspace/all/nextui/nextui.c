@@ -1726,6 +1726,8 @@ static SDL_atomic_t workerThreadsShutdown; // Flag to signal threads to exit (at
 
 static SDL_Surface* folderbgbmp = NULL;
 static SDL_Surface* thumbbmp = NULL;
+static char current_thumb_request[1024] = "";
+static char current_thumb_loaded[1024] = "";
 static SDL_Surface* screen = NULL; // Must be assigned externally
 static SDL_Surface* globalpill = NULL;
 static SDL_Surface* globalText = NULL;
@@ -1733,6 +1735,7 @@ static SDL_Surface* globalText = NULL;
 static int had_thumb = 0;
 static int ox;
 static int oy;
+static int stable_ox = 0;
 static SDL_atomic_t animationDrawAtomic;
 static SDL_atomic_t needDrawAtomic;
 
@@ -1975,6 +1978,7 @@ void onThumbLoaded(SDL_Surface* surface) {
 
 
     thumbbmp = surface;
+	strncpy(current_thumb_loaded, current_thumb_request, sizeof(current_thumb_loaded) - 1);
 	int img_w = thumbbmp->w;
 	int img_h = thumbbmp->h;
 	double aspect_ratio = (double)img_h / img_w;
@@ -2984,13 +2988,30 @@ int main (int argc, char *argv[]) {
 						char thumbpath[1024];
 						snprintf(thumbpath, sizeof(thumbpath), "%s/.media/%s.png", rompath, res_copy);
 						had_thumb = 0;
+						strncpy(current_thumb_request, thumbpath, sizeof(current_thumb_request) - 1);
 						startLoadThumb(thumbpath, onThumbLoaded, NULL);
 						int max_w = (int)(screen->w - (screen->w * CFG_getGameArtWidth()));
 						int max_h = (int)(screen->h * 0.6);
 						int new_w = max_w;
 						int new_h = max_h;
 						if(exists(thumbpath)) {
-							ox = (int)(max_w) - SCALE1(BUTTON_MARGIN*5);
+							ox = stable_ox > 0 ? stable_ox : (int)(max_w) - SCALE1(BUTTON_MARGIN*5);
+							SDL_LockMutex(thumbMutex);
+							if (thumbbmp != NULL && strcmp(current_thumb_loaded, thumbpath) == 0) {
+								double aspect = (double)thumbbmp->h / thumbbmp->w;
+								int art_max_w = (int)(screen->w * CFG_getGameArtWidth());
+								int art_max_h = (int)(screen->h * 0.6);
+								int actual_w = art_max_w;
+								int actual_h = (int)(actual_w * aspect);
+								if (actual_h > art_max_h) {
+									actual_h = art_max_h;
+									actual_w = (int)(actual_h / aspect);
+								}
+								int target_x = screen->w - (actual_w + SCALE1(BUTTON_MARGIN * 3));
+								ox = target_x - SCALE1(BUTTON_MARGIN * 2);
+								stable_ox = ox;
+							}
+							SDL_UnlockMutex(thumbMutex);
 							had_thumb = 1;
 						}
 						else
@@ -3030,7 +3051,7 @@ int main (int argc, char *argv[]) {
 						Entry* entry = top->entries->items[i];
 						char* entry_name = entry->name;
 						char* entry_unique = entry->unique;
-						int available_width = MAX(0,(had_thumb ? ox + SCALE1(BUTTON_MARGIN) : screen->w - SCALE1(BUTTON_MARGIN)) - SCALE1(PADDING * 2));
+						int available_width = MAX(0, had_thumb ? ox : screen->w - SCALE1(BUTTON_MARGIN) - SCALE1(PADDING * 2));
 						bool row_is_selected = (j == selected_row);
 						bool row_is_top = (i == top->start);
 						bool row_has_moved = (previous_row != selected_row || previous_depth != stack->count);
@@ -3043,7 +3064,7 @@ int main (int argc, char *argv[]) {
 
 						char display_name[256];
 						int text_width = GFX_getTextWidth(font.large, entry_unique ? entry_unique : entry_name, display_name, available_width, SCALE1(BUTTON_PADDING * 2));
-						int max_width = MIN(available_width, text_width);
+						int max_width = available_width;
 
 						// This spaghetti is preventing white text on white pill when volume/color temp is shown,
 						// dont ask me why. This all needs to get tossed out and redone properly later.
@@ -3070,6 +3091,7 @@ int main (int argc, char *argv[]) {
 								globalpill=NULL;
 							}
 							globalpill = SDL_CreateRGBSurfaceWithFormat(SDL_SWSURFACE, max_width, SCALE1(PILL_SIZE), FIXED_DEPTH, screen->format->format);
+							SDL_FillRect(globalpill, NULL, 0);
 							GFX_blitPillDark(ASSET_WHITE_PILL, globalpill, &(SDL_Rect){0,0, max_width, SCALE1(PILL_SIZE)});
 							globallpillW =  max_width;
 							SDL_UnlockMutex(animMutex);
@@ -3203,6 +3225,11 @@ int main (int argc, char *argv[]) {
 					}
 
 					int target_x = screen->w-(new_w + SCALE1(BUTTON_MARGIN*3));
+					if (had_thumb) {
+						int new_ox = target_x - SCALE1(BUTTON_MARGIN * 2);
+						if (new_ox != ox)
+							dirty = 1;
+					}
 					int target_y = (int)(screen->h * 0.50);
 					int center_y = target_y - (new_h / 2); // FIX: use new_h instead of thumbbmp->h
 					GFX_clearLayers(LAYER_THUMBNAIL);
@@ -3259,6 +3286,11 @@ int main (int argc, char *argv[]) {
 				}
 
 				int target_x = screen->w-(new_w + SCALE1(BUTTON_MARGIN*3));
+				if (had_thumb) {
+					int new_ox = target_x - SCALE1(BUTTON_MARGIN * 2);
+					if (new_ox != ox)
+						dirty = 1;
+				}
 				int target_y = (int)(screen->h * 0.50);
 				int center_y = target_y - (new_h / 2); // FIX: use new_h instead of thumbbmp->h
 				GFX_clearLayers(LAYER_THUMBNAIL);
@@ -3288,13 +3320,13 @@ int main (int argc, char *argv[]) {
 						entry_text = entry->unique;
 					}
 
-					int available_width = (had_thumb ? ox + SCALE1(BUTTON_MARGIN) : screen->w - SCALE1(BUTTON_MARGIN)) - SCALE1(PADDING * 2);
+					int available_width = MAX(0, had_thumb ? ox : screen->w - SCALE1(BUTTON_MARGIN) - SCALE1(PADDING * 2));
 					if (top->selected == top->start && !had_thumb) available_width -= ow;
 
 					SDL_Color text_color = uintToColour(THEME_COLOR5_255);
 
 					int text_width = GFX_getTextWidth(font.large, entry_text, cached_display_name, available_width, SCALE1(BUTTON_PADDING * 2));
-					int max_width = MIN(available_width, text_width);
+					int max_width = available_width;
 					int text_offset_y = (SCALE1(PILL_SIZE) - TTF_FontHeight(font.large) + 1) >> 1;
 
 					GFX_clearLayers(LAYER_SCROLLTEXT);
@@ -3326,7 +3358,6 @@ int main (int argc, char *argv[]) {
 			else {
 				GFX_sync();
 			}
-			dirty = 0;
 		}
 		else {
 			// want to draw only if needed
