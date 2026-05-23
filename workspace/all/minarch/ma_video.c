@@ -640,11 +640,7 @@ static void screen_flip(SDL_Surface* screen) {
 		GFX_flip_fixed_rate(screen, core.fps);
 	}
 	else {
-#ifdef PLAT_NO_VSYNC
-		GFX_flip_fixed_rate(screen, SCREEN_FPS);
-#else
 		GFX_GL_Swap();
-#endif
 	}
 }
 
