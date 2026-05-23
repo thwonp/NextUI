@@ -132,6 +132,7 @@
 
 // this should be set to the devices native screen refresh rate
 #define SCREEN_FPS 60.0
+#define PLAT_NO_VSYNC 1
 ///////////////////////////////
 
 #endif
